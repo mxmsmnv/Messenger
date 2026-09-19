@@ -1,0 +1,31 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+if(PHP_SAPI!=='cli'&&PHP_SAPI!=='phpdbg')exit(1);
+
+$arguments=array_slice($argv,1);$command='help';$options=[];
+foreach($arguments as $argument){if(str_starts_with($argument,'--')){$pair=explode('=',substr($argument,2),2);$options[$pair[0]]=$pair[1]??true;}elseif($command==='help')$command=$argument;}
+$help=<<<'TXT'
+Messenger CLI — local maintenance worker
+
+Usage:
+  messenger notifications --root=/path/to/processwire --dry-run [--limit=50]
+  messenger notifications --root=/path/to/processwire --execute [--limit=50]
+
+The CLI is disabled until enable_cli is set in Messenger configuration.
+Real delivery requires the explicit --execute flag.
+TXT;
+if($command==='help'||isset($options['help'])){fwrite(STDOUT,$help . PHP_EOL);exit(0);}
+$root=rtrim((string)($options['root']??''),DIRECTORY_SEPARATOR);
+if($root===''||!is_file($root . '/index.php')||!is_file($root . '/wire/core/ProcessWire.php')){fwrite(STDERR,json_encode(['ok'=>false,'error'=>'ProcessWire root not found. Pass --root=/path/to/site.']) . PHP_EOL);exit(2);}
+try{
+	chdir($root);require $root . '/index.php';
+	$messenger=$wire->modules->getModule('Messenger',['noPermissionCheck'=>true]);
+	if(!$messenger instanceof \ProcessWire\Messenger)throw new RuntimeException('Messenger is not installed.');
+	if(!(bool)$messenger->enable_cli)throw new RuntimeException('Messenger CLI is disabled.');
+	if($command!=='notifications')throw new InvalidArgumentException('Unknown command.');
+	if(!isset($options['dry-run'])&&!isset($options['execute']))throw new InvalidArgumentException('Use --dry-run or --execute.');
+	$result=$messenger->runNotificationOutbox(max(1,min(100,(int)($options['limit']??50))),isset($options['execute']));
+	fwrite(STDOUT,json_encode(['ok'=>true,'result'=>$result],JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) . PHP_EOL);exit(0);
+}catch(Throwable $error){fwrite(STDERR,json_encode(['ok'=>false,'error'=>$error->getMessage()],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) . PHP_EOL);exit(1);}
