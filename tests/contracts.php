@@ -9,12 +9,13 @@ $api = (string)file_get_contents($root . '/API.md');
 $changelog = (string)file_get_contents($root . '/CHANGELOG.md');
 $frontend = (string)file_get_contents($root . '/assets/messenger.js');
 
-if(!str_contains($module, 'public const VERSION = 100;') || !str_contains($module, "'version' => 100") || !str_contains($admin, "'version' => 100")) throw new RuntimeException('Release version must be 1.0.0 / 100 everywhere.');
+if(!str_contains($module, 'public const VERSION = 101;') || !str_contains($module, "'version' => 101") || !str_contains($admin, "'version' => 101")) throw new RuntimeException('Release version must be 1.0.1 / 101 everywhere.');
 if(!str_contains($readme, '![Messenger](assets/Messenger.png)') || !is_file($root . '/assets/Messenger.png')) throw new RuntimeException('README doodle contract missing.');
 if(!is_file($root . '/LICENSE') || !str_contains((string)file_get_contents($root . '/LICENSE'), 'MIT License')) throw new RuntimeException('MIT license contract missing.');
 if(!is_file($root . '/.github/FUNDING.yml') || !str_contains((string)file_get_contents($root . '/.github/FUNDING.yml'), 'smnv.org/sponsor')) throw new RuntimeException('Sponsorship metadata contract missing.');
-if(substr_count($changelog, '## [') !== 1 || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog must contain only the first public 1.0.0 release.');
-foreach(['Messenger 1.0.0', 'module version `100`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
+if(substr_count($changelog, '## [') !== 2 || !str_contains($changelog, '## [1.0.1]') || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog release history is incomplete.');
+foreach(['Messenger 1.0.1', 'module version `101`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
+if(!str_contains($module, "exec('BEGIN IMMEDIATE')") || !str_contains($module, "ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE'") || str_contains($module, "' FOR UPDATE')->fetchAll")) throw new RuntimeException('Portable encryption migration locking is missing.');
 
 $requiredTables = [
 	'messenger_conversations','messenger_participants','messenger_messages','messenger_message_hides',

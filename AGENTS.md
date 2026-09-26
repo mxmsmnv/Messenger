@@ -23,7 +23,7 @@ Start with a site-specific Blueprint covering member roles, first-contact journe
 
 Then:
 
-1. Confirm Messenger 1.0.0/module version 100 and its PHP/ProcessWire/sodium requirements.
+1. Confirm Messenger 1.0.1/module version 101 and its PHP/ProcessWire/sodium requirements.
 2. Map existing users, roles, permissions, routes, templates, cache layers, WireMail providers, and the authoritative relationship service.
 3. Decide whether first contact is open, a Message Request, or site-policy only. Use `Messenger::messagingDecision` for verified match/connection rules.
 4. Obtain approval before installation, route/schema/permission changes, email activation, or policy changes.
@@ -119,4 +119,4 @@ These are already responsibility boundaries. Keep domain invariants in the modul
 
 Run PHP syntax checks for all PHP files, `php tests/contracts.php`, and `php tests/encryption-integration.php`. On a disposable ProcessWire site, verify installation/upgrade, module settings, public rendering, REST/session/CSRF behavior, two-user request and conversation flows, moderation permissions, notification preview/failure paths, responsive UI, and retain-on-uninstall behavior.
 
-Runtime changes require synchronized version metadata and [CHANGELOG.md](CHANGELOG.md). Release 1.0.0 uses ProcessWire integer version `100`.
+Runtime changes require synchronized version metadata and [CHANGELOG.md](CHANGELOG.md). Release 1.0.1 uses ProcessWire integer version `101`.

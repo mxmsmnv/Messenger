@@ -2,6 +2,14 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.0.1] - 2026-09-26
+
+### Fixed
+
+- Made the encryption-at-rest migration use an immediate write transaction on
+  SQLite and omit its unsupported `FOR UPDATE` clauses there.
+- Retained row-level migration locks on MySQL and PostgreSQL.
+
 ## [1.0.0] - 2026-09-19
 
 First public release.

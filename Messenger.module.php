@@ -5,7 +5,7 @@
  */
 class Messenger extends WireData implements Module, ConfigurableModule {
 
-	public const VERSION = 100;
+	public const VERSION = 101;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -27,7 +27,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 100,
+			'version' => 101,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -653,13 +653,25 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		];
 	}
 
+	private function beginWriteTransaction($database): void {
+		if($database->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+			$database->exec('BEGIN IMMEDIATE');
+			return;
+		}
+		$database->beginTransaction();
+	}
+
+	private function forUpdate($database): string {
+		return $database->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
+	}
+
 	public function migrateEncryptionAtRest(): array {
-		$this->encryptionKey();$db=$this->wire('database');$result=['messages'=>0,'reports'=>0];$db->beginTransaction();
+		$this->encryptionKey();$db=$this->wire('database');$result=['messages'=>0,'reports'=>0];$this->beginWriteTransaction($db);
 		try {
-			$messages=$db->query('SELECT id,conversation_id,sender_user_id,client_id,body,created_at FROM `' . self::TABLE_MESSAGES . '` WHERE body<>\'\' AND LEFT(body,8)<>\'' . self::ENCRYPTION_PREFIX . '\' FOR UPDATE')->fetchAll(\PDO::FETCH_ASSOC);
+			$messages=$db->query('SELECT id,conversation_id,sender_user_id,client_id,body,created_at FROM `' . self::TABLE_MESSAGES . '` WHERE body<>\'\' AND LEFT(body,8)<>\'' . self::ENCRYPTION_PREFIX . '\'' . $this->forUpdate($db))->fetchAll(\PDO::FETCH_ASSOC);
 			$updateMessage=$db->prepare('UPDATE `' . self::TABLE_MESSAGES . '` SET body=? WHERE id=?');
 			foreach($messages as $message){$encrypted=$this->encryptValue((string)$message['body'],$this->messageAad($message));if($this->decryptValue($encrypted,$this->messageAad($message))!==(string)$message['body'])throw new WireException('Messenger encryption verification failed.');$updateMessage->execute([$encrypted,(int)$message['id']]);$result['messages']++;}
-			$reports=$db->query('SELECT id,reporter_user_id,conversation_id,message_id,comment,evidence_body,resolution,created_at FROM `' . self::TABLE_REPORTS . '` FOR UPDATE')->fetchAll(\PDO::FETCH_ASSOC);
+			$reports=$db->query('SELECT id,reporter_user_id,conversation_id,message_id,comment,evidence_body,resolution,created_at FROM `' . self::TABLE_REPORTS . '`' . $this->forUpdate($db))->fetchAll(\PDO::FETCH_ASSOC);
 			$updateReport=$db->prepare('UPDATE `' . self::TABLE_REPORTS . '` SET comment=?,evidence_body=?,evidence_hash=?,resolution=? WHERE id=?');
 			foreach($reports as $report){$evidencePlain=str_starts_with((string)$report['evidence_body'],self::ENCRYPTION_PREFIX)?$this->decryptValue((string)$report['evidence_body'],$this->reportAad($report,'evidence_body')):(string)$report['evidence_body'];foreach(['comment','evidence_body','resolution'] as $field)if($report[$field]!==''&&!str_starts_with((string)$report[$field],self::ENCRYPTION_PREFIX))$report[$field]=$this->encryptValue((string)$report[$field],$this->reportAad($report,$field));$updateReport->execute([$report['comment'],$report['evidence_body'],$this->contentFingerprint($evidencePlain),$report['resolution'],(int)$report['id']]);$result['reports']++;}
 			$db->commit();

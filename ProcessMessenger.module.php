@@ -6,10 +6,10 @@ class ProcessMessenger extends Process {
 		return [
 			'title' => 'Messenger',
 			'summary' => 'Moderate reports and manage Messenger safety.',
-			'version' => 100,
+			'version' => 101,
 			'author' => 'Maxim Semenov',
 			'icon' => 'comments',
-			'requires' => ['Messenger'],
+			'requires' => ['Messenger>=1.0.1'],
 			'permission' => Messenger::PERMISSION_MODERATE,
 			'page' => ['name' => 'messenger', 'parent' => 'setup', 'title' => 'Messenger'],
 		];
