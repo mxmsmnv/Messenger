@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.0.2 (ProcessWire module version `102`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.1.0 (ProcessWire module version `110`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -103,6 +103,24 @@ runNotificationOutbox(int $limit = 50, bool $execute = false): array
 
 The outbox method previews by default. Delivery requires `$execute = true`, enabled email/CLI settings, and a valid WireMail transport. Explicitly selecting a missing or unconfigured provider fails closed. Provider credentials remain owned by the WireMail module.
 
+## Administrative broadcasts
+
+```php
+previewBroadcast(User $actor, string $audience = 'all', string $role = ''): array
+createBroadcast(User $actor, string $body, string $audience = 'all', string $role = ''): array
+broadcasts(User $actor, int $limit = 50): array
+broadcast(int $id, User $actor): array
+processBroadcast(int $id, User $actor, int $limit = 100, bool $execute = false): array
+cancelBroadcast(int $id, User $actor): array
+runBroadcastQueue(int $limit = 100, bool $execute = false): array
+```
+
+All member-facing broadcast methods require a superuser or `messenger-admin`. The Process module accepts either `messenger-admin` or `messenger-moderate` at its boundary, then limits each section to its specific permission; an administrator without moderation access is sent directly to Broadcasts. `createBroadcast()` snapshots eligible recipients and stores the source body under authenticated encryption. The audience is `all` or `role`; a role audience requires the ProcessWire role name.
+
+`processBroadcast()` previews a batch unless `$execute` is true. Delivery creates or reuses one direct conversation between the administrator and each recipient, marks first contact accepted, and inserts one encrypted message with a deterministic client ID. This intentionally bypasses member first-contact, block, and sender-rate rules for the authorized administrative message. A recipient who becomes unavailable or restricted before delivery is skipped. Delivery rows, stable client IDs, transactions, and a three-attempt limit prevent duplicate messages during retries.
+
+`runBroadcastQueue()` is intended for the local CLI worker. Execution fails closed unless the Messenger CLI setting is enabled. Creation, delivery, cancellation, conversation IDs, and message IDs are audited; message bodies are not written to audit metadata.
+
 ## Encryption at rest
 
 ```php
@@ -146,4 +164,4 @@ Defaults are returned by `Messenger::getDefaultConfig()`: public path `/messages
 
 `handleRestRequest()`, `getModuleConfigInputfields()`, `install()`, `upgrade()`, and `uninstall()` are framework lifecycle/transport entry points, not site-domain APIs. Database helpers, encryption helpers, audit helpers, `MessengerRestApi`, and `ProcessMessenger` internals are unsupported.
 
-Do not query or write `messenger_*` tables, expose `direct_key`, client IDs, audit metadata, or evidence snapshots, or call private/protected methods. Uninstall retains tables and permissions. There are no deprecated public APIs in 1.0.2.
+Do not query or write `messenger_*` tables, expose `direct_key`, client IDs, audit metadata, or evidence snapshots, or call private/protected methods. Uninstall retains tables and permissions. There are no deprecated public APIs in 1.1.0.

@@ -23,7 +23,7 @@ Start with a site-specific Blueprint covering member roles, first-contact journe
 
 Then:
 
-1. Confirm Messenger 1.0.2/module version 102 and its PHP/ProcessWire/sodium requirements.
+1. Confirm Messenger 1.1.0/module version 110 and its PHP/ProcessWire/sodium requirements.
 2. Map existing users, roles, permissions, routes, templates, cache layers, WireMail providers, and the authoritative relationship service.
 3. Decide whether first contact is open, a Message Request, or site-policy only. Use `Messenger::messagingDecision` for verified match/connection rules.
 4. Obtain approval before installation, route/schema/permission changes, email activation, or policy changes.
@@ -69,6 +69,7 @@ Never query `messenger_*` tables from templates, call private/protected helpers,
 - Never persist message/report content outside the authenticated-encryption envelope. Missing key material, unavailable sodium, or authentication failure must fail closed.
 - Never print, persist in module settings, commit, or casually rotate `$config->messengerEncryptionKey` or its `tableSalt` fallback.
 - First-contact policy must query verified site data; a posted relationship flag is untrusted.
+- Treat broadcasts as an external communication side effect. Preview the snapshotted audience, require explicit confirmation, never put message bodies in logs or audit metadata, and do not reinterpret `messenger-moderate` as broadcast authority.
 
 ## Safety levels
 
@@ -96,6 +97,7 @@ Uninstall intentionally retains all Messenger tables and permissions. Never repr
 ## Architecture map
 
 - `Messenger.module.php` — module lifecycle, configuration, domain policy, member/moderation API, persistence, encryption, rendering, and notifications.
+- `src/MessengerBroadcasts.php` — permission-gated audience snapshots, encrypted broadcast records, idempotent delivery batches, cancellation, and queue processing.
 - `MessengerRestApi.php` — same-origin REST dispatch, CSRF, rate/error handling, and private response headers.
 - `ProcessMessenger.module.php` — permission-gated AdminThemeUikit dashboard, reports, restrictions, and settings links.
 - `assets/messenger.js` — member interaction and polling client.
@@ -119,4 +121,4 @@ These are already responsibility boundaries. Keep domain invariants in the modul
 
 Run PHP syntax checks for all PHP files, `php tests/contracts.php`, and `php tests/encryption-integration.php`. On a disposable ProcessWire site, verify installation/upgrade, module settings, public rendering, REST/session/CSRF behavior, two-user request and conversation flows, moderation permissions, notification preview/failure paths, responsive UI, and retain-on-uninstall behavior.
 
-Runtime changes require synchronized version metadata and [CHANGELOG.md](CHANGELOG.md). Release 1.0.2 uses ProcessWire integer version `102`.
+Runtime changes require synchronized version metadata and [CHANGELOG.md](CHANGELOG.md). Release 1.1.0 uses ProcessWire integer version `110`.

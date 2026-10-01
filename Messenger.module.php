@@ -1,11 +1,14 @@
 <?php namespace ProcessWire;
 
+require_once __DIR__ . '/src/MessengerBroadcasts.php';
+
 /**
  * Private member-to-member messaging with requests, safety controls and moderation.
  */
 class Messenger extends WireData implements Module, ConfigurableModule {
+	use MessengerBroadcasts;
 
-	public const VERSION = 102;
+	public const VERSION = 110;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -23,11 +26,13 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public const TABLE_RESTRICTIONS = 'messenger_restrictions';
 	public const TABLE_OUTBOX = 'messenger_notification_outbox';
 	public const TABLE_AUDIT = 'messenger_audit';
+	public const TABLE_BROADCASTS = 'messenger_broadcasts';
+	public const TABLE_BROADCAST_DELIVERIES = 'messenger_broadcast_deliveries';
 
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 102,
+			'version' => 110,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -650,6 +655,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			'key_source'=>trim((string)$this->wire('config')->get('messengerEncryptionKey'))!==''?'messengerEncryptionKey':'tableSalt',
 			'plaintext_messages'=>$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE body<>\'\' AND LEFT(body,8)<>?', [self::ENCRYPTION_PREFIX]),
 			'plaintext_report_fields'=>$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_REPORTS . '` WHERE (evidence_body<>\'\' AND LEFT(evidence_body,8)<>?) OR (comment<>\'\' AND LEFT(comment,8)<>?) OR (resolution<>\'\' AND LEFT(resolution,8)<>?)', [self::ENCRYPTION_PREFIX,self::ENCRYPTION_PREFIX,self::ENCRYPTION_PREFIX]),
+			'plaintext_broadcasts'=>$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_BROADCASTS . '` WHERE body<>\'\' AND LEFT(body,8)<>?', [self::ENCRYPTION_PREFIX]),
 		];
 	}
 
@@ -666,7 +672,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	}
 
 	public function migrateEncryptionAtRest(): array {
-		$this->encryptionKey();$db=$this->wire('database');$result=['messages'=>0,'reports'=>0];$this->beginWriteTransaction($db);
+		$this->encryptionKey();$db=$this->wire('database');$result=['messages'=>0,'reports'=>0,'broadcasts'=>0];$this->beginWriteTransaction($db);
 		try {
 			$messages=$db->query('SELECT id,conversation_id,sender_user_id,client_id,body,created_at FROM `' . self::TABLE_MESSAGES . '` WHERE body<>\'\' AND LEFT(body,8)<>\'' . self::ENCRYPTION_PREFIX . '\'' . $this->forUpdate($db))->fetchAll(\PDO::FETCH_ASSOC);
 			$updateMessage=$db->prepare('UPDATE `' . self::TABLE_MESSAGES . '` SET body=? WHERE id=?');
@@ -674,9 +680,12 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$reports=$db->query('SELECT id,reporter_user_id,conversation_id,message_id,comment,evidence_body,resolution,created_at FROM `' . self::TABLE_REPORTS . '`' . $this->forUpdate($db))->fetchAll(\PDO::FETCH_ASSOC);
 			$updateReport=$db->prepare('UPDATE `' . self::TABLE_REPORTS . '` SET comment=?,evidence_body=?,evidence_hash=?,resolution=? WHERE id=?');
 			foreach($reports as $report){$evidencePlain=str_starts_with((string)$report['evidence_body'],self::ENCRYPTION_PREFIX)?$this->decryptValue((string)$report['evidence_body'],$this->reportAad($report,'evidence_body')):(string)$report['evidence_body'];foreach(['comment','evidence_body','resolution'] as $field)if($report[$field]!==''&&!str_starts_with((string)$report[$field],self::ENCRYPTION_PREFIX))$report[$field]=$this->encryptValue((string)$report[$field],$this->reportAad($report,$field));$updateReport->execute([$report['comment'],$report['evidence_body'],$this->contentFingerprint($evidencePlain),$report['resolution'],(int)$report['id']]);$result['reports']++;}
+			$broadcasts=$db->query('SELECT id,created_by,sender_user_id,audience,audience_value,body,created_at FROM `' . self::TABLE_BROADCASTS . '` WHERE body<>\'\' AND LEFT(body,8)<>\'' . self::ENCRYPTION_PREFIX . '\'' . $this->forUpdate($db))->fetchAll(\PDO::FETCH_ASSOC);
+			$updateBroadcast=$db->prepare('UPDATE `' . self::TABLE_BROADCASTS . '` SET body=? WHERE id=?');
+			foreach($broadcasts as $broadcast){$updateBroadcast->execute([$this->encryptValue((string)$broadcast['body'],$this->broadcastAad($broadcast)),(int)$broadcast['id']]);$result['broadcasts']++;}
 			$db->commit();
 		} catch(\Throwable $error) { if($db->inTransaction())$db->rollBack();throw $error; }
-		$status=$this->encryptionStatus();if($status['plaintext_messages']||$status['plaintext_report_fields'])throw new WireException('Messenger encryption migration is incomplete.');return $result+$status;
+		$status=$this->encryptionStatus();if($status['plaintext_messages']||$status['plaintext_report_fields']||$status['plaintext_broadcasts'])throw new WireException('Messenger encryption migration is incomplete.');return $result+$status;
 	}
 
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); }
@@ -783,5 +792,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_RESTRICTIONS . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`user_id` INT UNSIGNED NOT NULL,`status` VARCHAR(20) NOT NULL DEFAULT \'suspended\',`reason` TEXT NOT NULL,`expires_at` DATETIME NULL,`created_by` INT UNSIGNED NOT NULL,`created_at` DATETIME NOT NULL,`updated_at` DATETIME NOT NULL,PRIMARY KEY (`id`),UNIQUE KEY `user_id` (`user_id`),KEY `active` (`status`,`expires_at`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_OUTBOX . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`event_key` VARCHAR(190) NOT NULL,`conversation_id` BIGINT UNSIGNED NOT NULL,`message_id` BIGINT UNSIGNED NOT NULL,`recipient_user_id` INT UNSIGNED NOT NULL,`channel` VARCHAR(20) NOT NULL,`status` VARCHAR(20) NOT NULL DEFAULT \'pending\',`available_at` DATETIME NOT NULL,`attempts` INT UNSIGNED NOT NULL DEFAULT 0,`last_error` VARCHAR(500) NOT NULL DEFAULT \'\',`created_at` DATETIME NOT NULL,`processed_at` DATETIME NULL,PRIMARY KEY (`id`),UNIQUE KEY `event_key` (`event_key`),KEY `worker` (`status`,`available_at`,`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_AUDIT . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`actor_user_id` INT UNSIGNED NOT NULL,`action` VARCHAR(50) NOT NULL,`conversation_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`message_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`metadata` TEXT NOT NULL,`created_at` DATETIME NOT NULL,PRIMARY KEY (`id`),KEY `conversation` (`conversation_id`,`created_at`),KEY `actor` (`actor_user_id`,`created_at`),KEY `action` (`action`,`created_at`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_BROADCASTS . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`created_by` INT UNSIGNED NOT NULL,`sender_user_id` INT UNSIGNED NOT NULL,`audience` VARCHAR(20) NOT NULL DEFAULT \'all\',`audience_value` VARCHAR(128) NOT NULL DEFAULT \'\',`body` MEDIUMTEXT NOT NULL,`status` VARCHAR(20) NOT NULL DEFAULT \'queued\',`total_count` INT UNSIGNED NOT NULL DEFAULT 0,`processed_count` INT UNSIGNED NOT NULL DEFAULT 0,`delivered_count` INT UNSIGNED NOT NULL DEFAULT 0,`skipped_count` INT UNSIGNED NOT NULL DEFAULT 0,`failed_count` INT UNSIGNED NOT NULL DEFAULT 0,`created_at` DATETIME NOT NULL,`started_at` DATETIME NULL,`completed_at` DATETIME NULL,`updated_at` DATETIME NOT NULL,PRIMARY KEY (`id`),KEY `queue` (`status`,`id`),KEY `creator` (`created_by`,`created_at`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_BROADCAST_DELIVERIES . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`broadcast_id` BIGINT UNSIGNED NOT NULL,`recipient_user_id` INT UNSIGNED NOT NULL,`status` VARCHAR(20) NOT NULL DEFAULT \'pending\',`attempts` INT UNSIGNED NOT NULL DEFAULT 0,`conversation_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`message_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`last_error` VARCHAR(500) NOT NULL DEFAULT \'\',`created_at` DATETIME NOT NULL,`processed_at` DATETIME NULL,PRIMARY KEY (`id`),UNIQUE KEY `broadcast_recipient` (`broadcast_id`,`recipient_user_id`),KEY `worker` (`broadcast_id`,`status`,`id`),KEY `recipient` (`recipient_user_id`,`broadcast_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 	}
 }

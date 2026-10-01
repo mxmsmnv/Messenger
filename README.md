@@ -26,6 +26,7 @@ If this module saves you time, you can [sponsor the work](https://smnv.org/spons
 - Selectable WireMail provider and preview-first local notification worker.
 - Responsive member UI plus an AdminThemeUikit dashboard, report queue, restrictions workspace, and settings navigation.
 - Presentation adapters for semantic styles, Designsystemet, UIkit, Bootstrap, Tailwind CSS, and custom role mappings.
+- Permission-gated administrative broadcasts to all eligible members or a selected role, with audience preview, encrypted source content, idempotent batch delivery, progress, cancellation, and audit history.
 
 ## Requirements
 
@@ -89,7 +90,15 @@ Preview queued delivery before executing it from local cron:
 ```bash
 php site/modules/Messenger/bin/messenger notifications --root=/path/to/site --dry-run
 php site/modules/Messenger/bin/messenger notifications --root=/path/to/site --execute
+php site/modules/Messenger/bin/messenger broadcasts --root=/path/to/site --dry-run
+php site/modules/Messenger/bin/messenger broadcasts --root=/path/to/site --execute
 ```
+
+## Administrative broadcasts
+
+Users with `messenger-admin` can open **Setup → Messenger → Broadcasts**, choose all eligible members or a selected role, write the private message, and check the exact eligible-recipient count. The reviewed audience and message must remain unchanged before the confirmation control and Send button become available. The first 100 recipients are processed immediately. Larger queues can be continued from the broadcast detail screen or by the explicitly enabled local CLI worker.
+
+Each recipient receives one normal encrypted direct message from the administrator who created the broadcast. Recipient snapshots and deterministic delivery IDs make retries safe. Broadcasts bypass ordinary member first-contact, block, and sender-rate rules, but unavailable or restricted recipients are skipped at delivery time. Every lifecycle action is audited without copying message bodies into audit metadata.
 
 ## Security and data lifecycle
 
