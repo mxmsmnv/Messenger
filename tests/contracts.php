@@ -9,12 +9,12 @@ $api = (string)file_get_contents($root . '/API.md');
 $changelog = (string)file_get_contents($root . '/CHANGELOG.md');
 $frontend = (string)file_get_contents($root . '/assets/messenger.js');
 
-if(!str_contains($module, 'public const VERSION = 101;') || !str_contains($module, "'version' => 101") || !str_contains($admin, "'version' => 101")) throw new RuntimeException('Release version must be 1.0.1 / 101 everywhere.');
+if(!str_contains($module, 'public const VERSION = 102;') || !str_contains($module, "'version' => 102") || !str_contains($admin, "'version' => 102") || !str_contains($admin, "'Messenger>=1.0.2'")) throw new RuntimeException('Release version must be 1.0.2 / 102 everywhere.');
 if(!str_contains($readme, '![Messenger](assets/Messenger.png)') || !is_file($root . '/assets/Messenger.png')) throw new RuntimeException('README doodle contract missing.');
 if(!is_file($root . '/LICENSE') || !str_contains((string)file_get_contents($root . '/LICENSE'), 'MIT License')) throw new RuntimeException('MIT license contract missing.');
 if(!is_file($root . '/.github/FUNDING.yml') || !str_contains((string)file_get_contents($root . '/.github/FUNDING.yml'), 'smnv.org/sponsor')) throw new RuntimeException('Sponsorship metadata contract missing.');
-if(substr_count($changelog, '## [') !== 2 || !str_contains($changelog, '## [1.0.1]') || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog release history is incomplete.');
-foreach(['Messenger 1.0.1', 'module version `101`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
+if(substr_count($changelog, '## [') !== 3 || !str_contains($changelog, '## [1.0.2]') || !str_contains($changelog, '## [1.0.1]') || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog release history is incomplete.');
+foreach(['Messenger 1.0.2', 'module version `102`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
 if(!str_contains($module, "exec('BEGIN IMMEDIATE')") || !str_contains($module, "ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE'") || str_contains($module, "' FOR UPDATE')->fetchAll")) throw new RuntimeException('Portable encryption migration locking is missing.');
 
 $requiredTables = [
@@ -36,6 +36,7 @@ foreach(['$fieldset(\'experience\'', '$fieldset(\'limits\'', '$fieldset(\'update
 foreach(['mail_module','mailProviderOptions','mailProviderLabel',"findByPrefix('WireMail')",'new($provider)','Selected WireMail provider is unavailable'] as $mailProviderContract) if(!str_contains($module,$mailProviderContract)) throw new RuntimeException("WireMail provider contract missing: {$mailProviderContract}");
 foreach(['frontend_framework','frontend_custom_map',"'semantic'", "'designsystemet'", "'uikit'", "'bootstrap'", "'tailwind'", "'custom'", 'data-framework', 'data-ui'] as $frameworkContract) if(!str_contains($module,$frameworkContract)) throw new RuntimeException("Frontend framework contract missing: {$frameworkContract}");
 foreach(['MessengerApp--restricted', 'Messaging unavailable', 'Access is scheduled to return after %s.'] as $restrictionContract) if(!str_contains($module,$restrictionContract)) throw new RuntimeException("Restricted-state contract missing: {$restrictionContract}");
+if(!str_contains($module, "</aside><section' . \$this->frontendAttributes('thread'") || str_contains($module, "</aside><main' . \$this->frontendAttributes('thread'")) throw new RuntimeException('Conversation thread must not create a nested main landmark.');
 foreach(['function applyUi','button_primary','button_secondary','button_tertiary','button_danger',"'conversation'","'textarea'","'badge'","'dialog'"] as $dynamicFrameworkContract) if(!str_contains($frontend,$dynamicFrameworkContract)) throw new RuntimeException("Dynamic frontend framework contract missing: {$dynamicFrameworkContract}");
 if(!str_contains($module,'GREATEST(last_read_message_id,CAST(? AS UNSIGNED))')) throw new RuntimeException('Unread watermark must compare message IDs numerically.');
 foreach(['blocked_by_actor','blocked_by_other','isBlockedBy'] as $blockDirectionContract) if(!str_contains($module,$blockDirectionContract) && !str_contains($frontend,$blockDirectionContract)) throw new RuntimeException("Directional block contract missing: {$blockDirectionContract}");

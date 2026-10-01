@@ -2,6 +2,14 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.0.2] - 2026-09-30
+
+### Fixed
+
+- Render the conversation thread as a semantic section instead of a nested
+  `main`, allowing the consuming page shell to remain the single main landmark
+  across desktop, tablet, and mobile layouts.
+
 ## [1.0.1] - 2026-09-26
 
 ### Fixed

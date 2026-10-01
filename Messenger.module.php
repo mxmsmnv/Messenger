@@ -5,7 +5,7 @@
  */
 class Messenger extends WireData implements Module, ConfigurableModule {
 
-	public const VERSION = 101;
+	public const VERSION = 102;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -27,7 +27,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 101,
+			'version' => 102,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -640,7 +640,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			'class' => 'MessengerApp', 'data-messenger-app' => '', 'data-api' => $endpoint,
 			'data-thread-poll' => max(3,(int)$this->poll_thread_seconds), 'data-inbox-poll' => max(10,(int)$this->poll_inbox_seconds),
 			'data-framework' => $framework, 'data-ui' => $ui,
-		]) . '><header' . $this->frontendAttributes('header', ['class' => 'MessengerApp-header']) . '><h1>' . $title . '</h1><button type="button"' . $this->frontendAttributes('button_primary', ['data-messenger-new' => '']) . '>' . $this->_('New message') . '</button></header><div' . $this->frontendAttributes('layout', ['class' => 'MessengerApp-layout']) . '><aside' . $this->frontendAttributes('inbox', ['class' => 'MessengerInbox', 'aria-label' => $this->_('Conversations')]) . '><nav' . $this->frontendAttributes('tabs') . '><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'inbox', 'aria-current' => 'page']) . '>' . $this->_('Inbox') . '</button><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'requests']) . '>' . $this->_('Requests') . '</button><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'archived']) . '>' . $this->_('Archived') . '</button></nav><form' . $this->frontendAttributes('search_form', ['class' => 'MessengerSearch', 'data-message-search' => '']) . '><input type="search" name="q" minlength="2" placeholder="' . $this->_('Search messages') . '"' . $this->frontendAttributes('input') . '><button type="submit"' . $this->frontendAttributes('button_secondary', ['aria-label' => $this->_('Search')]) . '>⌕</button></form><div' . $this->frontendAttributes('conversation_list', ['data-conversation-list' => '', 'aria-live' => 'polite']) . '><p' . $this->frontendAttributes('status', ['class' => 'MessengerState']) . '>' . $this->_('Loading conversations…') . '</p></div></aside><main' . $this->frontendAttributes('thread', ['class' => 'MessengerThread', 'data-thread' => '']) . '><div' . $this->frontendAttributes('empty', ['class' => 'MessengerEmpty']) . '><h2>' . $this->_('Select a conversation') . '</h2><p>' . $this->_('Your private messages and requests appear here.') . '</p></div></main></div><div' . $this->frontendAttributes('status', ['class' => 'MessengerLive', 'role' => 'status', 'aria-live' => 'polite', 'data-messenger-status' => '']) . '></div></section>';
+		]) . '><header' . $this->frontendAttributes('header', ['class' => 'MessengerApp-header']) . '><h1>' . $title . '</h1><button type="button"' . $this->frontendAttributes('button_primary', ['data-messenger-new' => '']) . '>' . $this->_('New message') . '</button></header><div' . $this->frontendAttributes('layout', ['class' => 'MessengerApp-layout']) . '><aside' . $this->frontendAttributes('inbox', ['class' => 'MessengerInbox', 'aria-label' => $this->_('Conversations')]) . '><nav' . $this->frontendAttributes('tabs') . '><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'inbox', 'aria-current' => 'page']) . '>' . $this->_('Inbox') . '</button><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'requests']) . '>' . $this->_('Requests') . '</button><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'archived']) . '>' . $this->_('Archived') . '</button></nav><form' . $this->frontendAttributes('search_form', ['class' => 'MessengerSearch', 'data-message-search' => '']) . '><input type="search" name="q" minlength="2" placeholder="' . $this->_('Search messages') . '"' . $this->frontendAttributes('input') . '><button type="submit"' . $this->frontendAttributes('button_secondary', ['aria-label' => $this->_('Search')]) . '>⌕</button></form><div' . $this->frontendAttributes('conversation_list', ['data-conversation-list' => '', 'aria-live' => 'polite']) . '><p' . $this->frontendAttributes('status', ['class' => 'MessengerState']) . '>' . $this->_('Loading conversations…') . '</p></div></aside><section' . $this->frontendAttributes('thread', ['class' => 'MessengerThread', 'data-thread' => '']) . '><div' . $this->frontendAttributes('empty', ['class' => 'MessengerEmpty']) . '><h2>' . $this->_('Select a conversation') . '</h2><p>' . $this->_('Your private messages and requests appear here.') . '</p></div></section></div><div' . $this->frontendAttributes('status', ['class' => 'MessengerLive', 'role' => 'status', 'aria-live' => 'polite', 'data-messenger-status' => '']) . '></div></section>';
 	}
 
 	public function encryptionStatus(): array {
