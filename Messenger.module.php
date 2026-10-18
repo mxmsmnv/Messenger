@@ -1,6 +1,7 @@
 <?php namespace ProcessWire;
 
 require_once __DIR__ . '/src/MessengerBroadcasts.php';
+require_once __DIR__ . '/src/MessengerMobileAuth.php';
 
 /**
  * Private member-to-member messaging with requests, safety controls and moderation.
@@ -8,7 +9,7 @@ require_once __DIR__ . '/src/MessengerBroadcasts.php';
 class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerBroadcasts;
 
-	public const VERSION = 110;
+	public const VERSION = 120;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -32,7 +33,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 110,
+			'version' => 120,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -65,6 +66,11 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			'from_email' => 'no-reply@example.com',
 			'from_name' => 'Messenger',
 			'retention_days' => 0,
+			'mobile_enabled' => 0,
+			'mobile_origin' => '',
+			'mobile_redirect_uris' => '',
+			'mobile_login_path' => '',
+			'mobile_login_return_param' => '',
 		];
 	}
 
@@ -75,12 +81,23 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 
 	public function init(): void {
 		$this->addHook('/messenger-api/{version}/{resource}/', $this, 'handleRestRequest');
+		$this->addHook('/messenger-mobile/v1/{resource}/', $this, 'handleMobileRequest');
+		$this->addHook('/.well-known/narzan', $this, 'handleMobileDiscovery');
 	}
 
 	public function handleRestRequest(HookEvent $event): string {
 		require_once __DIR__ . '/MessengerRestApi.php';
 		$rest = $this->wire(new MessengerRestApi($this));
 		return $rest->handle((string)$event->arguments('version'), (string)$event->arguments('resource'));
+	}
+
+	public function handleMobileRequest(HookEvent $event): string {
+		require_once __DIR__ . '/src/MessengerMobileHttp.php';
+		return (new MessengerMobileHttp($this))->handle((string)$event->arguments('resource'));
+	}
+	public function handleMobileDiscovery(HookEvent $event): string {
+		require_once __DIR__ . '/src/MessengerMobileHttp.php';
+		return (new MessengerMobileHttp($this))->handle('discovery');
 	}
 
 	public function getModuleConfigInputfields(InputfieldWrapper $inputfields): InputfieldWrapper {
@@ -172,6 +189,13 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$lifecycle->add($encryption);
 		$inputfields->add($lifecycle);
 
+		$mobile = $fieldset('mobile', $this->_('Narzan mobile access'), 'mobile', $this->_('Optional device authorization. Configure HTTPS issuer and exact app callbacks before enabling.'));
+		$add($mobile, 'InputfieldCheckbox', 'mobile_enabled', $this->_('Enable mobile access'), $this->_('Off by default; does not change browser sessions or CSRF.'), 100);
+		$add($mobile, 'InputfieldText', 'mobile_origin', $this->_('Canonical HTTPS origin'), $this->_('Exact HTTPS origin without a path, for example https://example.com. Never inferred from request headers.'), 100);
+		$add($mobile, 'InputfieldTextarea', 'mobile_redirect_uris', $this->_('Allowed application callback URIs'), $this->_('One exact URI per line. No wildcard or HTTP callbacks. Set only after choosing the app identity.'), 100);
+		$add($mobile, 'InputfieldText', 'mobile_login_path', $this->_('Existing website sign-in path'), $this->_('Optional same-origin path. The consuming site owns login and registration.'), 50);
+		$add($mobile, 'InputfieldText', 'mobile_login_return_param', $this->_('Sign-in return parameter'), $this->_('Exact parameter already supported by the site login, for example return. Leave blank when unavailable.'), 50);
+		$inputfields->add($mobile);
 		return $inputfields;
 	}
 
@@ -303,6 +327,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 
 	public function startConversation(User $actor, User $recipient, string $body, string $clientId = '', array $context = []): array {
 		$this->assertActor($actor);
+		$this->assertRecipient($actor, $recipient);
 		$existing = $this->directConversationId((int)$actor->id, (int)$recipient->id);
 		if($existing > 0) {
 			$conversation = $this->conversation($existing, $actor);
@@ -311,10 +336,13 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			return ['conversation' => $conversation, 'message' => $this->sendMessage((int)$conversation['id'], $actor, $body, $clientId)];
 		}
 		$decision = $this->messagingDecision($actor, $recipient, $context);
+		$this->assertRecipient($actor, $recipient);
 		if(!in_array((string)($decision['decision'] ?? ''), ['allow', 'request'], true)) throw new WirePermissionException((string)($decision['reason'] ?? 'Messaging is unavailable.'));
 		$this->assertNewRecipientRate((int)$actor->id);
+		$this->assertMessageRate((int)$actor->id);
 		$body = $this->messageBody($body);
 		$clientId = $this->clientId($clientId);
+		if($this->messageByClientId((int)$actor->id,$clientId)) throw new MessengerMobileException('idempotency_conflict','Client message id conflicts with another operation.',409);
 		$now = $this->now();
 		$key = bin2hex(random_bytes(16));
 		$directKey = $this->directKey((int)$actor->id, (int)$recipient->id);
@@ -334,7 +362,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$db->commit();
 		} catch(\Throwable $error) {
 			if($db->inTransaction()) $db->rollBack();
-			if(str_contains(strtolower($error->getMessage()), 'duplicate')) {
+			if($error instanceof \PDOException && in_array((string)$error->getCode(), ['23000','23505'], true)) {
 				$id = $this->directConversationId((int)$actor->id, (int)$recipient->id);
 				if($id) return ['conversation' => $this->conversation($id, $actor), 'message' => $this->sendMessage($id, $actor, $body, $clientId)];
 			}
@@ -345,36 +373,43 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 
 	public function sendMessage(int $conversationId, User $actor, string $body, string $clientId = ''): array {
 		$this->assertActor($actor);
-		$conversation = $this->conversation($conversationId, $actor);
-		if(!$conversation || (string)$conversation['state'] !== 'active') throw new WirePermissionException('Conversation unavailable.');
-		$otherId = $this->otherParticipantId($conversationId, (int)$actor->id);
-		if($otherId < 1 || $this->isBlockedEitherWay((int)$actor->id, $otherId)) throw new WirePermissionException('Messaging is unavailable.');
-		if((string)$conversation['request_state'] === 'declined') throw new WirePermissionException('This request was declined.');
-		if((string)$conversation['request_state'] === 'pending' && (int)$conversation['requester_id'] !== (int)$actor->id) throw new WirePermissionException('Accept the message request before replying.');
-		if((string)$conversation['request_state'] === 'pending') {
-			$count = $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND sender_user_id=? AND deleted_at IS NULL', [$conversationId, (int)$actor->id]);
-			if($count >= max(1, (int)$this->max_pending_request_messages)) throw new WirePermissionException('Wait for the recipient to accept this request.');
-		}
-		$this->assertMessageRate((int)$actor->id);
 		$body = $this->messageBody($body);
 		$clientId = $this->clientId($clientId);
-		$existing = $this->messageByClientId((int)$actor->id, $clientId);
-		if($existing) return $existing;
-		$now = $this->now();
 		$db = $this->wire('database');
 		$db->beginTransaction();
 		try {
+			// Serialize pending-count validation with insertion on this conversation.
+			$stmt = $db->prepare('SELECT id FROM `' . self::TABLE_CONVERSATIONS . '` WHERE id=?' . $this->forUpdate($db));
+			$stmt->execute([$conversationId]);
+			$conversation = $this->conversation($conversationId, $actor);
+			if(!$conversation || (string)$conversation['state'] !== 'active') throw new WirePermissionException('Conversation unavailable.');
+			$otherId = $this->otherParticipantId($conversationId, (int)$actor->id);
+			$other = $this->wire('users')->get($otherId);
+			$this->assertRecipient($actor, $other);
+			if((string)$conversation['request_state'] === 'declined') throw new WirePermissionException('This request was declined.');
+			$existing = $this->messageByClientId((int)$actor->id, $clientId);
+			if($existing) { $result = $this->replayMessage($existing, $conversationId, $body); $db->commit(); return $result; }
+			if((string)$conversation['request_state'] === 'pending' && (int)$conversation['requester_id'] !== (int)$actor->id) throw new WirePermissionException('Accept the message request before replying.');
+			if((string)$conversation['request_state'] === 'pending') {
+				$count = $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND sender_user_id=? AND deleted_at IS NULL', [$conversationId, (int)$actor->id]);
+				if($count >= max(1, (int)$this->max_pending_request_messages)) throw new WirePermissionException('Wait for the recipient to accept this request.');
+			}
+			$this->assertMessageRate((int)$actor->id);
+			$now = $this->now();
 			$message = $this->insertMessage($conversationId, $actor, $body, $clientId, $now);
 			$this->queueEmailNotification($conversationId, (int)$message['id'], $otherId, $now);
 			$this->audit('message_sent', $conversationId, (int)$message['id'], (int)$actor->id);
 			$db->commit();
+			return $message;
 		} catch(\Throwable $error) {
 			if($db->inTransaction()) $db->rollBack();
-			$existing = $this->messageByClientId((int)$actor->id, $clientId);
-			if($existing) return $existing;
+			// Only uniqueness races may be replayed, never authorization/policy errors.
+			if($error instanceof \PDOException && in_array((string)$error->getCode(), ['23000','23505'], true)) {
+				$existing = $this->messageByClientId((int)$actor->id, $clientId);
+				if($existing) return $this->replayMessage($existing, $conversationId, $body);
+			}
 			throw $error;
 		}
-		return $message;
 	}
 
 	public function conversationsForUser(User $actor, string $scope = 'inbox', ?string $before = null, int $limit = 30): array {
@@ -387,7 +422,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		elseif($scope === 'archived') $where[] = 'p.archived_at IS NOT NULL';
 		else { $where[] = 'p.archived_at IS NULL'; $where[] = '(c.request_state=\'accepted\' OR c.requester_id=?)'; $params[] = (int)$actor->id; }
 		if($before && preg_match('/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\|(\d+)$/', $before, $match)) { $where[] = '(COALESCE(c.last_message_at,c.created_at) < ? OR (COALESCE(c.last_message_at,c.created_at)=? AND c.id<?))'; array_push($params, $match[1], $match[1], (int)$match[2]); }
-		$sql = 'SELECT c.*,p.last_read_message_id,p.archived_at,p.muted_until,p.email_mode,(SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` um WHERE um.conversation_id=c.id AND um.id>p.last_read_message_id AND um.sender_user_id<>p.user_id AND um.deleted_at IS NULL) unread_count FROM `' . self::TABLE_CONVERSATIONS . '` c JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=c.id WHERE ' . implode(' AND ', $where) . ' ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.id DESC LIMIT ' . $limit;
+		$sql = 'SELECT c.*,p.last_read_message_id,p.archived_at,p.muted_until,p.email_mode,(SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` um WHERE um.conversation_id=c.id AND um.id>p.last_read_message_id AND um.sender_user_id<>p.user_id AND um.deleted_at IS NULL AND um.id NOT IN (SELECT message_id FROM `' . self::TABLE_MESSAGE_HIDES . '` WHERE user_id=p.user_id)) unread_count FROM `' . self::TABLE_CONVERSATIONS . '` c JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=c.id WHERE ' . implode(' AND ', $where) . ' ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.id DESC LIMIT ' . $limit;
 		$stmt = $this->wire('database')->prepare($sql); $stmt->execute($params);
 		$items = [];
 		foreach($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) $items[] = $this->decorateConversation($row, $actor);
@@ -432,22 +467,44 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		return $items;
 	}
 
+	/** Conservative cache invalidation, including edits older than the message-ID cursor. */
+	public function syncState(User $actor, string $revision = ''): array {
+		$this->assertActor($actor);
+		if($revision !== '' && !preg_match('/^[a-f0-9]{64}$/D', $revision)) throw new \InvalidArgumentException('Invalid sync revision.');
+		$q=$this->wire('database')->prepare('SELECT COUNT(*) AS events,COALESCE(MAX(a.id),0) AS latest FROM `' . self::TABLE_AUDIT . '` a WHERE a.actor_user_id=? OR EXISTS (SELECT 1 FROM `' . self::TABLE_PARTICIPANTS . '` p WHERE p.conversation_id=a.conversation_id AND p.user_id=?)');
+		$q->execute([(int)$actor->id,(int)$actor->id]);$state=$q->fetch(\PDO::FETCH_ASSOC);
+		// Count plus max detects a later commit of an earlier allocated audit ID as well.
+		$current=hash_hmac('sha256','Messenger|sync|v1|' . (int)$actor->id . '|' . $state['events'] . '|' . $state['latest'], $this->encryptionKey());
+		$changed=$revision==='' || !hash_equals($current,$revision);
+		return ['revision'=>$current,'changed'=>$changed,'reset_required'=>$changed,'strategy'=>'invalidate_and_refetch'];
+	}
+
 	public function editMessage(int $messageId, User $actor, string $body): array {
-		$this->assertActor($actor); $message=$this->ownedMessage($messageId,$actor); $window=max(0,(int)$this->edit_window_minutes);
-		if($window<1||strtotime((string)$message['created_at'])<time()-$window*60||$message['deleted_at']) throw new WirePermissionException('This message can no longer be edited.');
-		$body=$this->messageBody($body);$this->execute('UPDATE `' . self::TABLE_MESSAGES . '` SET body=?,edited_at=? WHERE id=?',[$this->encryptValue($body,$this->messageAad($message)),$this->now(),$messageId]);$this->audit('message_edited',(int)$message['conversation_id'],$messageId,(int)$actor->id);
-		$message['body']=$body;$message['edited_at']=$this->now();return $message;
+		return $this->atomic(function() use ($messageId,$actor,$body): array {
+			$this->assertActor($actor);$message=$this->ownedMessage($messageId,$actor);$window=max(0,(int)$this->edit_window_minutes);
+			if($window<1||strtotime((string)$message['created_at'])<time()-$window*60||$message['deleted_at'])throw new WirePermissionException('This message can no longer be edited.');
+			$body=$this->messageBody($body);$now=$this->now();
+			$this->execute('UPDATE `' . self::TABLE_MESSAGES . '` SET body=?,edited_at=? WHERE id=?',[$this->encryptValue($body,$this->messageAad($message)),$now,$messageId]);
+			$this->audit('message_edited',(int)$message['conversation_id'],$messageId,(int)$actor->id);
+			$message['body']=$body;$message['edited_at']=$now;unset($message['client_id'],$message['request_hash']);return $message;
+		});
 	}
 
 	public function deleteMessage(int $messageId, User $actor): void {
-		$message=$this->ownedMessage($messageId,$actor);$window=max(0,(int)$this->delete_window_minutes);
-		if($window<1||strtotime((string)$message['created_at'])<time()-$window*60||$message['deleted_at']) throw new WirePermissionException('This message can no longer be removed.');
-		$this->execute('UPDATE `' . self::TABLE_MESSAGES . '` SET body=\'\',deleted_at=? WHERE id=?',[$this->now(),$messageId]);$this->audit('message_deleted',(int)$message['conversation_id'],$messageId,(int)$actor->id);
+		$this->atomic(function() use ($messageId,$actor): void {
+			$this->assertActor($actor);$message=$this->ownedMessage($messageId,$actor);$window=max(0,(int)$this->delete_window_minutes);
+			if($window<1||strtotime((string)$message['created_at'])<time()-$window*60||$message['deleted_at'])throw new WirePermissionException('This message can no longer be removed.');
+			$this->execute('UPDATE `' . self::TABLE_MESSAGES . '` SET body=\'\',deleted_at=? WHERE id=?',[$this->now(),$messageId]);$this->audit('message_deleted',(int)$message['conversation_id'],$messageId,(int)$actor->id);
+		});
 	}
 
 	public function hideMessage(int $messageId, User $actor): void {
-		$stmt=$this->wire('database')->prepare('SELECT m.conversation_id FROM `' . self::TABLE_MESSAGES . '` m JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=m.conversation_id AND p.user_id=? WHERE m.id=?');$stmt->execute([(int)$actor->id,$messageId]);$conversationId=(int)$stmt->fetchColumn();if(!$conversationId)throw new WirePermissionException('Message unavailable.');
-		$stmt=$this->wire('database')->prepare('INSERT IGNORE INTO `' . self::TABLE_MESSAGE_HIDES . '` (message_id,user_id,created_at) VALUES (?,?,?)');$stmt->execute([$messageId,(int)$actor->id,$this->now()]);$this->audit('message_hidden',$conversationId,$messageId,(int)$actor->id);
+		$this->atomic(function() use ($messageId,$actor): void {
+			$this->assertActor($actor);
+			$stmt=$this->wire('database')->prepare('SELECT m.conversation_id FROM `' . self::TABLE_MESSAGES . '` m JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=m.conversation_id AND p.user_id=? WHERE m.id=?');$stmt->execute([(int)$actor->id,$messageId]);$id=(int)$stmt->fetchColumn();if(!$id)throw new WirePermissionException('Message unavailable.');
+			$exists=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGE_HIDES . '` WHERE message_id=? AND user_id=?',[$messageId,(int)$actor->id]);if($exists)return;
+			$this->execute('INSERT INTO `' . self::TABLE_MESSAGE_HIDES . '` (message_id,user_id,created_at) VALUES (?,?,?)',[$messageId,(int)$actor->id,$this->now()]);$this->audit('message_hidden',$id,$messageId,(int)$actor->id);
+		});
 	}
 
 	public function searchMessages(User $actor, string $query, int $limit = 30): array {
@@ -476,43 +533,50 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	}
 
 	public function acceptRequest(int $conversationId, User $actor): array {
-		$conversation = $this->conversation($conversationId, $actor);
-		if(!$conversation || (int)$conversation['recipient_id'] !== (int)$actor->id || (string)$conversation['request_state'] !== 'pending') throw new WirePermissionException('Message request unavailable.');
-		$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET request_state=\'accepted\',updated_at=? WHERE id=?', [$this->now(), $conversationId]);
-		$this->audit('request_accepted', $conversationId, 0, (int)$actor->id);
-		return $this->conversation($conversationId, $actor);
+		return $this->atomic(function() use ($conversationId,$actor) {
+			$conversation = $this->conversation($conversationId, $actor);
+			if(!$conversation || (int)$conversation['recipient_id'] !== (int)$actor->id || (string)$conversation['request_state'] !== 'pending') throw new WirePermissionException('Message request unavailable.');
+			$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET request_state=\'accepted\',updated_at=? WHERE id=?', [$this->now(), $conversationId]);
+			$this->audit('request_accepted', $conversationId, 0, (int)$actor->id);
+			return $this->conversation($conversationId, $actor);
+		});
 	}
-
 	public function declineRequest(int $conversationId, User $actor): void {
-		$conversation = $this->conversation($conversationId, $actor);
-		if(!$conversation || (int)$conversation['recipient_id'] !== (int)$actor->id || (string)$conversation['request_state'] !== 'pending') throw new WirePermissionException('Message request unavailable.');
-		$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET request_state=\'declined\',updated_at=? WHERE id=?', [$this->now(), $conversationId]);
-		$this->audit('request_declined', $conversationId, 0, (int)$actor->id);
+		$this->atomic(function() use ($conversationId,$actor): void {
+			$conversation = $this->conversation($conversationId, $actor);
+			if(!$conversation || (int)$conversation['recipient_id'] !== (int)$actor->id || (string)$conversation['request_state'] !== 'pending') throw new WirePermissionException('Message request unavailable.');
+			$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET request_state=\'declined\',updated_at=? WHERE id=?', [$this->now(), $conversationId]);
+			$this->audit('request_declined', $conversationId, 0, (int)$actor->id);
+		});
 	}
-
 	public function markRead(int $conversationId, User $actor, int $messageId): void {
-		if(!$this->conversation($conversationId, $actor)) throw new WirePermissionException('Conversation unavailable.');
-		$max = $this->scalar('SELECT COALESCE(MAX(id),0) FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND id<=?', [$conversationId, $messageId]);
-		$this->execute('UPDATE `' . self::TABLE_PARTICIPANTS . '` SET last_read_message_id=GREATEST(last_read_message_id,CAST(? AS UNSIGNED)) WHERE conversation_id=? AND user_id=?', [$max, $conversationId, (int)$actor->id]);
+		$this->atomic(function() use ($conversationId,$actor,$messageId): void {
+			if(!$this->conversation($conversationId, $actor)) throw new WirePermissionException('Conversation unavailable.');
+			$max = $this->scalar('SELECT COALESCE(MAX(id),0) FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND id<=?', [$conversationId, $messageId]);
+			$current=$this->conversation($conversationId,$actor);if($max <= (int)$current['last_read_message_id'])return;
+			$this->execute('UPDATE `' . self::TABLE_PARTICIPANTS . '` SET last_read_message_id=GREATEST(last_read_message_id,CAST(? AS UNSIGNED)) WHERE conversation_id=? AND user_id=?', [$max, $conversationId, (int)$actor->id]);
+			$this->audit('conversation_read',$conversationId,$max,(int)$actor->id);
+		});
 	}
-
 	public function setArchived(int $conversationId, User $actor, bool $archived): void { $this->participantMutation($conversationId, $actor, 'archived_at', $archived ? $this->now() : null); }
 	public function setMuted(int $conversationId, User $actor, ?string $until): void { if($until && strtotime($until) === false) throw new WireException('Invalid mute time.'); $this->participantMutation($conversationId, $actor, 'muted_until', $until); }
 	public function setEmailMode(int $conversationId, User $actor, string $mode): void { if(!in_array($mode, ['instant','digest','off'], true)) throw new WireException('Invalid notification preference.'); $this->participantMutation($conversationId, $actor, 'email_mode', $mode); }
 
 	public function blockUser(User $actor, User $blocked, string $reason = ''): void {
-		$this->assertActor($actor); if(!$blocked->id || $actor->id === $blocked->id) throw new WireException('Invalid user.');
-		$stmt = $this->wire('database')->prepare('INSERT INTO `' . self::TABLE_BLOCKS . '` (blocker_user_id,blocked_user_id,reason,created_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE reason=VALUES(reason)');
-		$stmt->execute([(int)$actor->id, (int)$blocked->id, mb_substr(trim($reason), 0, 500), $this->now()]);
-		$this->audit('user_blocked', 0, 0, (int)$actor->id, ['blocked_user_id' => (int)$blocked->id]);
+		$this->atomic(function() use ($actor,$blocked,$reason): void {
+			$this->assertActor($actor); if(!$blocked->id || $actor->id === $blocked->id) throw new WireException('Invalid user.');
+			$stmt = $this->wire('database')->prepare('INSERT INTO `' . self::TABLE_BLOCKS . '` (blocker_user_id,blocked_user_id,reason,created_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE reason=VALUES(reason)');
+			$stmt->execute([(int)$actor->id, (int)$blocked->id, mb_substr(trim($reason), 0, 500), $this->now()]);
+			$this->audit('user_blocked', $this->directConversationId((int)$actor->id,(int)$blocked->id), 0, (int)$actor->id, ['blocked_user_id' => (int)$blocked->id]);
+		});
 	}
-
 	public function unblockUser(User $actor, User $blocked): void {
-		$this->assertActor($actor);
-		$this->execute('DELETE FROM `' . self::TABLE_BLOCKS . '` WHERE blocker_user_id=? AND blocked_user_id=?', [(int)$actor->id, (int)$blocked->id]);
-		$this->audit('user_unblocked', 0, 0, (int)$actor->id, ['blocked_user_id' => (int)$blocked->id]);
+		$this->atomic(function() use ($actor,$blocked): void {
+			$this->assertActor($actor);
+			$this->execute('DELETE FROM `' . self::TABLE_BLOCKS . '` WHERE blocker_user_id=? AND blocked_user_id=?', [(int)$actor->id, (int)$blocked->id]);
+			$this->audit('user_unblocked', $this->directConversationId((int)$actor->id,(int)$blocked->id), 0, (int)$actor->id, ['blocked_user_id' => (int)$blocked->id]);
+		});
 	}
-
 	public function reportMessage(User $actor, int $messageId, string $category, string $comment = ''): array {
 		$this->assertActor($actor);
 		$stmt = $this->wire('database')->prepare('SELECT m.*,c.public_key FROM `' . self::TABLE_MESSAGES . '` m JOIN `' . self::TABLE_CONVERSATIONS . '` c ON c.id=m.conversation_id JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=c.id AND p.user_id=? WHERE m.id=? LIMIT 1');
@@ -688,14 +752,14 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$status=$this->encryptionStatus();if($status['plaintext_messages']||$status['plaintext_report_fields']||$status['plaintext_broadcasts'])throw new WireException('Messenger encryption migration is incomplete.');return $result+$status;
 	}
 
-	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); }
-	public function upgrade($fromVersion, $toVersion): void { $this->installPermissions(); $this->installTables(); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
+	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
+	public function upgrade($fromVersion, $toVersion): void { $this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->message($this->_('Messenger data and permissions were retained.')); }
 
 	private function insertMessage(int $conversationId, User $actor, string $body, string $clientId, string $now): array {
-		$stmt=$this->wire('database')->prepare('INSERT INTO `' . self::TABLE_MESSAGES . '` (conversation_id,sender_user_id,client_id,body,reply_to_id,moderation_state,created_at,edited_at,deleted_at) VALUES (?,?,?,?,0,\'visible\',?,NULL,NULL)');
+		$stmt=$this->wire('database')->prepare('INSERT INTO `' . self::TABLE_MESSAGES . '` (conversation_id,sender_user_id,client_id,body,request_hash,reply_to_id,moderation_state,created_at,edited_at,deleted_at) VALUES (?,?,?,?,?,0,\'visible\',?,NULL,NULL)');
 		$message=['conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'client_id'=>$clientId,'created_at'=>$now];
-		$stmt->execute([$conversationId,(int)$actor->id,$clientId,$this->encryptValue($body,$this->messageAad($message)),$now]); $id=(int)$this->wire('database')->lastInsertId();
+		$stmt->execute([$conversationId,(int)$actor->id,$clientId,$this->encryptValue($body,$this->messageAad($message)),$this->contentFingerprint($body),$now]); $id=(int)$this->wire('database')->lastInsertId();
 		$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET last_message_id=?,last_message_at=?,updated_at=? WHERE id=?',[$id,$now,$now,$conversationId]);
 		return ['id'=>$id,'conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'body'=>$body,'moderation_state'=>'visible','created_at'=>$now,'edited_at'=>null,'deleted_at'=>null];
 	}
@@ -708,23 +772,25 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$row['blocked_by_other']=$this->isBlockedBy($otherId,(int)$actor->id);
 		$row['blocked']=$row['blocked_by_actor']||$row['blocked_by_other'];
 		$row['other_user']=['id'=>$otherId,'name'=>$other->id?(string)$other->name:'','title'=>$other->id?(string)($other->get('title')?:$other->name):$this->_('Unavailable member')];
-		if($row['last_message_id']) { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,created_at,deleted_at FROM `' . self::TABLE_MESSAGES . '` WHERE id=?'); $stmt->execute([(int)$row['last_message_id']]); $last=$stmt->fetch(\PDO::FETCH_ASSOC); if($last){$last['body']=$last['deleted_at']?'':mb_substr($this->decryptMessageRow($last),0,160);unset($last['client_id']);$row['last_message']=$last;} }
+		if($row['last_message_id']) { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,created_at,deleted_at FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND id NOT IN (SELECT message_id FROM `' . self::TABLE_MESSAGE_HIDES . '` WHERE user_id=?) ORDER BY id DESC LIMIT 1'); $stmt->execute([(int)$row['id'], (int)$actor->id]); $last=$stmt->fetch(\PDO::FETCH_ASSOC); if($last){$last['body']=$last['deleted_at']?'':mb_substr($this->decryptMessageRow($last),0,160);unset($last['client_id']);$row['last_message']=$last;} }
 		unset($row['direct_key']); return $row;
 	}
 
 	private function participantMutation(int $conversationId, User $actor, string $column, $value): void {
-		if(!$this->conversation($conversationId,$actor)) throw new WirePermissionException('Conversation unavailable.');
-		if(!in_array($column,['archived_at','muted_until','email_mode'],true)) throw new WireException('Invalid preference.');
-		$this->execute('UPDATE `' . self::TABLE_PARTICIPANTS . '` SET `' . $column . '`=? WHERE conversation_id=? AND user_id=?',[$value,$conversationId,(int)$actor->id]);
+		$this->atomic(function() use ($conversationId,$actor,$column,$value): void {
+			$conversation=$this->conversation($conversationId,$actor);if(!$conversation) throw new WirePermissionException('Conversation unavailable.');
+			if(!in_array($column,['archived_at','muted_until','email_mode'],true)) throw new WireException('Invalid preference.');
+			$this->execute('UPDATE `' . self::TABLE_PARTICIPANTS . '` SET `' . $column . '`=? WHERE conversation_id=? AND user_id=?',[$value,$conversationId,(int)$actor->id]);
+			if(($conversation[$column]??null)!==$value)$this->audit('conversation_preference',$conversationId,0,(int)$actor->id);
+		});
 	}
-
 	private function ownedMessage(int $messageId, User $actor): array {
 		$stmt=$this->wire('database')->prepare('SELECT m.* FROM `' . self::TABLE_MESSAGES . '` m JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=m.conversation_id AND p.user_id=? WHERE m.id=? AND m.sender_user_id=? LIMIT 1');$stmt->execute([(int)$actor->id,$messageId,(int)$actor->id]);$message=$stmt->fetch(\PDO::FETCH_ASSOC);if(!$message)throw new WirePermissionException('Message unavailable.');$message['body']=$message['deleted_at']?'':$this->decryptMessageRow($message);return $message;
 	}
 
 	private function restriction(User $user): array {
 		if(!$user->id) return ['active'=>true]; $stmt=$this->wire('database')->prepare('SELECT status,reason,expires_at FROM `' . self::TABLE_RESTRICTIONS . '` WHERE user_id=? LIMIT 1');
-		try{$stmt->execute([(int)$user->id]);$row=$stmt->fetch(\PDO::FETCH_ASSOC);}catch(\Throwable $e){return ['active'=>false];}
+		try{$stmt->execute([(int)$user->id]);$row=$stmt->fetch(\PDO::FETCH_ASSOC);}catch(\Throwable $e){throw new WireException('Messenger safety policy is unavailable.');}
 		$active=$row&&$row['status']==='suspended'&&(!$row['expires_at']||strtotime($row['expires_at'])>time()); return ['active'=>$active,'reason'=>$active?(string)$row['reason']:'','expires_at'=>$active?$row['expires_at']:null];
 	}
 
@@ -764,12 +830,40 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	private function decryptMessageRow(array $message): string { return $this->decryptValue((string)$message['body'],$this->messageAad($message)); }
 	private function messageBody(string $body): string { $body=trim(str_replace(["\r\n","\r"],"\n",$body)); $max=max(1,min(50000,(int)$this->max_message_length)); if($body===''||mb_strlen($body)>$max) throw new WireException('Message is empty or too long.'); return $body; }
 	private function clientId(string $id): string { $id=trim($id); if($id==='') return bin2hex(random_bytes(16)); if(!preg_match('/^[A-Za-z0-9_-]{16,64}$/',$id)) throw new WireException('Invalid client message id.'); return $id; }
+	private function atomic(callable $operation) {
+		$db=$this->wire('database');$owned=!$db->inTransaction();if($owned)$db->beginTransaction();
+		try{$result=$operation();if($owned)$db->commit();return $result;}
+		catch(\Throwable $e){if($owned&&$db->inTransaction())$db->rollBack();throw $e;}
+	}
+
+	private function assertRecipient(User $actor, User $recipient): void {
+		if(!$this->canReceive($recipient) || (int)$actor->id === (int)$recipient->id || $this->isBlockedEitherWay((int)$actor->id, (int)$recipient->id)) throw new WirePermissionException('Messaging is unavailable.');
+	}
+
+	private function replayMessage(array $message, int $conversationId, string $body): array {
+		$fingerprint = (string)($message['request_hash'] ?? '');
+		// Legacy rows have no immutable fingerprint; never guess after an edit/delete.
+		if($fingerprint === '' && !$message['edited_at'] && !$message['deleted_at']) $fingerprint = $this->contentFingerprint((string)$message['body']);
+		if((int)$message['conversation_id'] !== $conversationId || $fingerprint === '' || !hash_equals($fingerprint, $this->contentFingerprint($body))) throw new MessengerMobileException('idempotency_conflict', 'Client message id conflicts with another operation.', 409);
+		unset($message['request_hash'], $message['client_id']);
+		foreach(['id','conversation_id','sender_user_id'] as $key) $message[$key] = (int)$message[$key];
+		return $message;
+	}
+
+	private function ensureRequestHashColumn(): void {
+		try { $this->wire('database')->query('SELECT request_hash FROM `' . self::TABLE_MESSAGES . '` WHERE 1=0'); }
+		catch(\PDOException $error) {
+			if((string)$error->getCode() !== '42S22' && !($this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='sqlite' && str_contains($error->getMessage(),'no such column'))) throw $error;
+			$this->wire('database')->exec("ALTER TABLE `" . self::TABLE_MESSAGES . "` ADD COLUMN request_hash CHAR(64) NOT NULL DEFAULT ''");
+		}
+	}
+
 	private function directKey(int $a,int $b): string { return hash('sha256',min($a,$b) . ':' . max($a,$b)); }
 	private function directConversationId(int $a,int $b): int { return $this->scalar('SELECT id FROM `' . self::TABLE_CONVERSATIONS . '` WHERE direct_key=? LIMIT 1',[$this->directKey($a,$b)]); }
 	private function otherParticipantId(int $conversationId,int $actorId): int { return $this->scalar('SELECT user_id FROM `' . self::TABLE_PARTICIPANTS . '` WHERE conversation_id=? AND user_id<>? LIMIT 1',[$conversationId,$actorId]); }
 	private function isBlockedBy(int $blockerId,int $blockedId): bool { return $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_BLOCKS . '` WHERE blocker_user_id=? AND blocked_user_id=?',[$blockerId,$blockedId])>0; }
 	private function isBlockedEitherWay(int $a,int $b): bool { return $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_BLOCKS . '` WHERE (blocker_user_id=? AND blocked_user_id=?) OR (blocker_user_id=? AND blocked_user_id=?)',[$a,$b,$b,$a])>0; }
-	private function messageByClientId(int $userId,string $clientId): array { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,moderation_state,created_at,edited_at,deleted_at FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND client_id=? LIMIT 1');$stmt->execute([$userId,$clientId]);$message=$stmt->fetch(\PDO::FETCH_ASSOC)?:[];if($message){$message['body']=$message['deleted_at']?'':$this->decryptMessageRow($message);unset($message['client_id']);}return $message; }
+	private function messageByClientId(int $userId,string $clientId): array { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,request_hash,moderation_state,created_at,edited_at,deleted_at FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND client_id=? LIMIT 1');$stmt->execute([$userId,$clientId]);$message=$stmt->fetch(\PDO::FETCH_ASSOC)?:[];if($message){$message['body']=$message['deleted_at']?'':$this->decryptMessageRow($message);unset($message['client_id']);}return $message; }
 	private function assertMessageRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-60)]); if($count>=max(1,(int)$this->max_messages_minute)) throw new WireException('Please wait before sending more messages.'); }
 	private function assertNewRecipientRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_CONVERSATIONS . '` WHERE requester_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-86400)]); if($count>=max(1,(int)$this->max_new_recipients_day)) throw new WireException('Daily new conversation limit reached.'); }
 	private function now(): string { return date('Y-m-d H:i:s'); }
@@ -785,7 +879,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$db=$this->wire('database');
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_CONVERSATIONS . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`public_key` CHAR(32) NOT NULL,`direct_key` CHAR(64) NOT NULL,`type` VARCHAR(20) NOT NULL DEFAULT \'direct\',`state` VARCHAR(20) NOT NULL DEFAULT \'active\',`request_state` VARCHAR(20) NOT NULL DEFAULT \'pending\',`requester_id` INT UNSIGNED NOT NULL,`recipient_id` INT UNSIGNED NOT NULL,`last_message_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`last_message_at` DATETIME NULL,`created_at` DATETIME NOT NULL,`updated_at` DATETIME NOT NULL,PRIMARY KEY (`id`),UNIQUE KEY `public_key` (`public_key`),UNIQUE KEY `direct_key` (`direct_key`),KEY `activity` (`last_message_at`,`id`),KEY `requests` (`recipient_id`,`request_state`,`updated_at`),KEY `requester` (`requester_id`,`created_at`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_PARTICIPANTS . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`conversation_id` BIGINT UNSIGNED NOT NULL,`user_id` INT UNSIGNED NOT NULL,`role` VARCHAR(20) NOT NULL DEFAULT \'member\',`last_read_message_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`archived_at` DATETIME NULL,`muted_until` DATETIME NULL,`hidden_before` DATETIME NULL,`email_mode` VARCHAR(20) NOT NULL DEFAULT \'instant\',`created_at` DATETIME NOT NULL,PRIMARY KEY (`id`),UNIQUE KEY `conversation_user` (`conversation_id`,`user_id`),KEY `user_inbox` (`user_id`,`archived_at`,`conversation_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
-		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_MESSAGES . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`conversation_id` BIGINT UNSIGNED NOT NULL,`sender_user_id` INT UNSIGNED NOT NULL,`client_id` VARCHAR(64) NOT NULL,`body` MEDIUMTEXT NOT NULL,`reply_to_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`moderation_state` VARCHAR(20) NOT NULL DEFAULT \'visible\',`created_at` DATETIME NOT NULL,`edited_at` DATETIME NULL,`deleted_at` DATETIME NULL,PRIMARY KEY (`id`),UNIQUE KEY `sender_client` (`sender_user_id`,`client_id`),KEY `thread_cursor` (`conversation_id`,`id`),KEY `sender_rate` (`sender_user_id`,`created_at`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_MESSAGES . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`conversation_id` BIGINT UNSIGNED NOT NULL,`sender_user_id` INT UNSIGNED NOT NULL,`client_id` VARCHAR(64) NOT NULL,`body` MEDIUMTEXT NOT NULL,`request_hash` CHAR(64) NOT NULL DEFAULT \'\',`reply_to_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,`moderation_state` VARCHAR(20) NOT NULL DEFAULT \'visible\',`created_at` DATETIME NOT NULL,`edited_at` DATETIME NULL,`deleted_at` DATETIME NULL,PRIMARY KEY (`id`),UNIQUE KEY `sender_client` (`sender_user_id`,`client_id`),KEY `thread_cursor` (`conversation_id`,`id`),KEY `sender_rate` (`sender_user_id`,`created_at`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_MESSAGE_HIDES . '` (`message_id` BIGINT UNSIGNED NOT NULL,`user_id` INT UNSIGNED NOT NULL,`created_at` DATETIME NOT NULL,PRIMARY KEY (`message_id`,`user_id`),KEY `user_id` (`user_id`,`message_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_BLOCKS . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`blocker_user_id` INT UNSIGNED NOT NULL,`blocked_user_id` INT UNSIGNED NOT NULL,`reason` VARCHAR(500) NOT NULL DEFAULT \'\',`created_at` DATETIME NOT NULL,PRIMARY KEY (`id`),UNIQUE KEY `block_pair` (`blocker_user_id`,`blocked_user_id`),KEY `blocked_user` (`blocked_user_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 		$db->exec('CREATE TABLE IF NOT EXISTS `' . self::TABLE_REPORTS . '` (`id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,`reporter_user_id` INT UNSIGNED NOT NULL,`reported_user_id` INT UNSIGNED NOT NULL,`conversation_id` BIGINT UNSIGNED NOT NULL,`message_id` BIGINT UNSIGNED NOT NULL,`category` VARCHAR(30) NOT NULL,`comment` TEXT NOT NULL,`evidence_body` MEDIUMTEXT NOT NULL,`evidence_hash` CHAR(64) NOT NULL,`status` VARCHAR(20) NOT NULL DEFAULT \'open\',`assigned_user_id` INT UNSIGNED NOT NULL DEFAULT 0,`resolution` TEXT NOT NULL,`created_at` DATETIME NOT NULL,`updated_at` DATETIME NOT NULL,PRIMARY KEY (`id`),KEY `queue` (`status`,`created_at`),KEY `reported_user` (`reported_user_id`,`created_at`),KEY `message_id` (`message_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');

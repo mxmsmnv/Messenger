@@ -13,6 +13,16 @@
 
 Messenger stores private encrypted content, exposes a same-origin member API, applies participant and moderation permissions, sends optional email, and can create administrative broadcast messages for a snapshotted audience. Highest-risk boundaries are authorization, CSRF, encryption, duplicate delivery, queue retries, evidence access, and recipient selection.
 
+## Narzan isolated regression suite
+
+Run `bash tests/run.sh` before deploying the 1.2.0 candidate. This includes the
+existing contracts, syntax checks, domain replay/visibility/policy/sync tests,
+PKCE/rotation/revocation tests, browser/native authority tests and disposable
+HTTP request checks. Fixture services and SQLite are intentionally isolated
+from the consuming website. The HTTP server is task-owned and always stopped.
+Real ProcessWire/MySQL, actual HTTPS, concurrent transactions and physical app
+callbacks remain separate release gates in NARZAN.md.
+
 ## Test commands
 
 ```bash
