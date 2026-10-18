@@ -14,13 +14,19 @@ trait MessengerConversationSettings {
 		if(!$exists)$db->exec('CREATE INDEX messenger_message_expiry ON messenger_messages (expires_at,id)');
 	}
 	public function setContact(User $actor,User $contact,bool $added): array {
-		$this->assertActor($actor);if(!$contact->id||(int)$contact->id===(int)$actor->id)throw new WirePermissionException('Member unavailable.');
-		if($added)$this->assertRecipient($actor,$contact);
+		if(!$added)return $this->removeContact($actor,(int)$contact->id);$this->assertActor($actor);
+		if(!$contact->id||(int)$contact->id===(int)$actor->id)throw new WirePermissionException('Member unavailable.');
+		$this->assertRecipient($actor,$contact);
 		return $this->atomic(function()use($actor,$contact,$added):array{
 			if($added){$sql=$this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='sqlite'?'INSERT INTO messenger_contacts (owner_id,contact_id,added_at) VALUES (?,?,?) ON CONFLICT(owner_id,contact_id) DO NOTHING':'INSERT INTO messenger_contacts (owner_id,contact_id,added_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE added_at=added_at';$this->execute($sql,[(int)$actor->id,(int)$contact->id,time()]);}
 			else $this->execute('DELETE FROM messenger_contacts WHERE owner_id=? AND contact_id=?',[(int)$actor->id,(int)$contact->id]);
 			return ['added'=>$added,'user_id'=>(int)$contact->id,'added_at'=>$this->contactAddedAt((int)$actor->id,(int)$contact->id)];
 		});
+	}
+	/** Removal never resolves the target: inaccessible and nonexistent IDs have identical results. */
+	public function removeContact(User $actor,int $contactId): array {
+		$this->assertActor($actor);if($contactId<1)throw new \InvalidArgumentException('A positive contact ID is required.');
+		return $this->atomic(function()use($actor,$contactId):array{$this->execute('DELETE FROM messenger_contacts WHERE owner_id=? AND contact_id=?',[(int)$actor->id,$contactId]);return ['added'=>false,'user_id'=>$contactId,'added_at'=>null];});
 	}
 	private function contactAddedAt(int $ownerId,int $contactId): ?int { $time=$this->scalar('SELECT added_at FROM messenger_contacts WHERE owner_id=? AND contact_id=?',[$ownerId,$contactId]);return $time?:null; }
 	public function setConversationMuted(int $id,User $actor,bool $muted): array { $this->setMuted($id,$actor,$muted?date('Y-m-d H:i:s',4102444800):null);return $this->conversation($id,$actor); }

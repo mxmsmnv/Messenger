@@ -43,8 +43,8 @@ final class MessengerRestApi extends Wire {
 						$result=$this->messenger->heartbeatPresence($actor);
 					}else $result=$this->messenger->setPresence($actor,(string)($body['status']??''),(string)($body['text']??''));break;
 				case 'contact':
-					$this->allow($method,['POST']);if(!isset($body['user_id'])||!is_int($body['user_id'])||!isset($body['added'])||!is_bool($body['added']))throw new \InvalidArgumentException('Contact and added flag are required.');
-					$result=$this->messenger->setContact($actor,$this->wire()->users->get($body['user_id']),$body['added']);break;
+					$this->allow($method,['POST']);if(!isset($body['user_id'])||!is_int($body['user_id'])||$body['user_id']<1||!isset($body['added'])||!is_bool($body['added']))throw new \InvalidArgumentException('Contact and added flag are required.');
+					$result=$body['added']?$this->messenger->setContact($actor,$this->wire()->users->get($body['user_id']),true):$this->messenger->removeContact($actor,$body['user_id']);break;
 				case 'retention':
 					$this->allow($method,['POST']);$seconds=$body['seconds']??0;$at=$body['at']??null;if(!is_int($seconds)||($at!==null&&!is_int($at)))throw new \InvalidArgumentException('Integer retention times are required.');
 					$result=$this->messenger->setConversationRetention($this->bodyConversationId($actor,$body),$actor,$seconds,$at);break;
