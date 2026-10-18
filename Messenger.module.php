@@ -780,6 +780,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$otherId=(int)$row['requester_id']===(int)$actor->id?(int)$row['recipient_id']:(int)$row['requester_id']; $other=$this->wire('users')->get($otherId);
 		$row['id']=(int)$row['id']; $row['requester_id']=(int)$row['requester_id']; $row['recipient_id']=(int)$row['recipient_id']; $row['last_message_id']=(int)$row['last_message_id']; $row['last_read_message_id']=(int)($row['last_read_message_id']??0); $row['unread_count']=(int)($row['unread_count']??0);
 		$row['auto_delete_seconds']=(int)($row['auto_delete_seconds']??0);$row['auto_delete_at']=isset($row['auto_delete_at'])?(int)$row['auto_delete_at']:null;$row['muted_until_epoch']=$row['muted_until']?strtotime((string)$row['muted_until']):null;$row['muted']=$row['muted_until_epoch']!==null&&$row['muted_until_epoch']>time();
+		$row['message_revision']=$this->scalar("SELECT COALESCE(MAX(id),0) FROM messenger_audit WHERE conversation_id=? AND action IN ('message_expiry_changed','message_expired','message_edited','message_deleted','message_hidden','conversation_deleted_for_user')",[(int)$row['id']]);
 		$row['sort_at']=(string)($row['last_message_at']?:$row['created_at']);
 		$row['blocked_by_actor']=$this->isBlockedBy((int)$actor->id,$otherId);
 		$row['blocked_by_other']=$this->isBlockedBy($otherId,(int)$actor->id);
