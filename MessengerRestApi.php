@@ -31,10 +31,24 @@ final class MessengerRestApi extends Wire {
 			if($resource === 'session') { $this->allow($method, ['GET']); return $this->sessionResponse($actor, $native); }
 			if(!$actor instanceof User || !$this->messenger->canUse($actor)) throw new WirePermissionException('Messenger access denied.');
 			if(!$native) $this->rateLimit($method !== 'GET');
-			$body = $method === 'POST' ? $this->jsonBody() : [];
+			$body = $method === 'POST' ? $this->jsonBody($resource) : [];
 			if($method === 'POST' && !$native) $this->validateCsrf($body);
 
 			switch($resource) {
+				case 'presence':
+					$this->allow($method,['GET','POST']);
+					if($method==='GET')$result=$this->messenger->presence($actor);
+					elseif(array_key_exists('heartbeat',$body)){
+						if($body['heartbeat']!==true||array_key_exists('status',$body)||array_key_exists('text',$body))throw new \InvalidArgumentException('Heartbeat must not change presence preferences.');
+						$result=$this->messenger->heartbeatPresence($actor);
+					}else $result=$this->messenger->setPresence($actor,(string)($body['status']??''),(string)($body['text']??''));break;
+				case 'directory':
+				case 'contacts':
+					$this->allow($method,['GET']);$result=$this->messenger->memberDirectory($actor,(string)$this->wire()->input->get('q'),$this->queryInt('limit',30,30),$resource==='contacts');break;
+				case 'send-attachment':
+					$this->allow($method,['POST']);$result=$this->messenger->sendAttachment($this->bodyConversationId($actor,$body),$actor,$body,(string)($body['client_id']??''));break;
+				case 'attachment':
+					$this->allow($method,['GET']);$result=$this->messenger->attachment($actor,(int)$this->wire()->input->get('id'));break;
 				case 'sync':
 					$this->allow($method, ['GET']);
 					$result = $this->messenger->syncState($actor, (string)$this->wire()->input->get('revision'));
@@ -162,10 +176,11 @@ final class MessengerRestApi extends Wire {
 	private function queryInt(string $name,int $default,int $maximum): int { return max(1,min($maximum,(int)$this->wire()->input->get($name)?:$default)); }
 	private function nullableQueryInt(string $name): ?int { $value=(int)$this->wire()->input->get($name);return $value>0?$value:null; }
 
-	private function jsonBody(): array {
+	private function jsonBody(string $resource = ''): array {
+		$maximum=$resource==='send-attachment'?12*1024*1024:self::MAX_BODY_BYTES;
 		$type=strtolower(trim(explode(';',(string)($_SERVER['CONTENT_TYPE']??''))[0]));if($type!=='application/json')throw new \InvalidArgumentException('Content-Type application/json is required.');
-		$length=(int)($_SERVER['CONTENT_LENGTH']??0);if($length>self::MAX_BODY_BYTES)throw new \InvalidArgumentException('Request is too large.');
-		$raw=file_get_contents('php://input',false,null,0,self::MAX_BODY_BYTES+1);if(!is_string($raw)||strlen($raw)>self::MAX_BODY_BYTES)throw new \InvalidArgumentException('Request is too large.');
+		$length=(int)($_SERVER['CONTENT_LENGTH']??0);if($length>$maximum)throw new \InvalidArgumentException('Request is too large.');
+		$raw=file_get_contents('php://input',false,null,0,$maximum+1);if(!is_string($raw)||strlen($raw)>$maximum)throw new \InvalidArgumentException('Request is too large.');
 		$body=json_decode($raw,true);if(!is_array($body))throw new \InvalidArgumentException('A JSON object is required.');return $body;
 	}
 

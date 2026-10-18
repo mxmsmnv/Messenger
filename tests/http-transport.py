@@ -39,15 +39,22 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/start/',payload,browser=True);check(status==403,'browser POST without CSRF rejected')
             payload['fixture_csrf']='fixture_csrf_value';status,text,_=request('/messenger-api/v1/start/',payload,browser=True);check(status==200 and json.loads(text)['ok'],'valid browser CSRF still works')
             verifier='v'*64;data={'redirect_uri':'org.example.narzan://callback','state':'s'*32,'code_challenge_method':'S256','code_challenge':base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('='),'device_name':'HTTP fixture'}
-            status,text,_=request('/messenger-mobile/v1/authorize/?'+urllib.parse.urlencode(data),browser=True);check(status==200 and 'Allow this device' in text,'consent GET')
+            status,text,_=request('/messenger-mobile/v1/authorize/?'+urllib.parse.urlencode(data),browser=True);check(status==200 and 'Allow this device' in text,'consent GET');check('<html lang="en">' in text and 'name="viewport" content="width=device-width, initial-scale=1"' in text and 'aria-label="Allow this device"' in text,'mobile consent semantics')
             status,text,_=request('/messenger-mobile/v1/authorize/',data|{'approve':'yes'},browser=True,form=True);check(status==403,'consent CSRF mandatory')
             status,text,_=request('/messenger-mobile/v1/authorize/',data|{'approve':'yes','fixture_csrf':'fixture_csrf_value'},browser=True,form=True)
+            check('role="link" aria-label="Return to Narzan"' in text and '<strong>Return to Narzan</strong>' in text and 'name="viewport"' in text,'mobile return accessibility')
             import re
             callback=html.unescape(re.search(r'href="([^"]+)"',text).group(1));query=urllib.parse.parse_qs(urllib.parse.urlparse(callback).query)
             status,text,headers=request('/messenger-mobile/v1/token/',{'code':query['code'][0],'code_verifier':verifier,'redirect_uri':data['redirect_uri']})
             tokens=json.loads(text);check(status==200 and 'access_token' in tokens,'native code exchange')
             check('no-store' in headers.get('Cache-Control',''),'tokens not cached');check(not any(k.lower()=='access-control-allow-origin' for k in headers),'no wildcard CORS')
             status,text,_=request('/messenger-api/v1/session/',token=tokens['access_token']);check(status==200 and 'csrf' not in json.loads(text)['result'],'native no browser CSRF')
+            status,text,_=request('/messenger-api/v1/presence/',{'heartbeat':True},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['status']=='online','heartbeat initializes online')
+            status,text,_=request('/messenger-api/v1/presence/',{'status':'invisible','text':'Synthetic private status'},token=tokens['access_token']);check(status==200,'choose invisible')
+            status,text,_=request('/messenger-api/v1/presence/',{'heartbeat':True},token=tokens['access_token']);presence=json.loads(text)['result'];check(status==200 and presence['status']=='invisible' and presence['text']=='Synthetic private status','heartbeat preserves latest preference')
+            status,text,_=request('/messenger-api/v1/presence/',{'heartbeat':True,'status':'online'},token=tokens['access_token']);check(status==400,'heartbeat cannot overwrite preferences')
+            status,text,_=request('/messenger-api/v1/presence/',{'heartbeat':'true'},token=tokens['access_token']);check(status==400,'heartbeat requires boolean true')
+
             status,text,_=request('/messenger-api/v1/session/',browser=True,token='invalid');check(status==400 and json.loads(text)['code']=='mixed_credentials','no cookie fallback')
             native_payload={'recipient_id':33,'body':'synthetic native message','client_id':'http_native_fixture_0001'}
             status,text,_=request('/messenger-api/v1/start/',native_payload,token=tokens['access_token']);check(status==200 and json.loads(text)['ok'],'valid native POST without CSRF')
