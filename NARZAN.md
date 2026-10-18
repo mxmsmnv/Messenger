@@ -50,8 +50,8 @@ must reject cross-origin redirects/credential forwarding and check returned issu
   `redirect_uri`, `code_challenge`, `code_challenge_method=S256`, `state`,
   optional `device_name`. A GET never grants credentials.
 - The logged-in ordinary member reviews and explicitly approves the device via
-  CSRF-protected POST. The completion page links to the exact callback with code,
-  original state and issuer. Native browser sessions must match state/issuer
+  CSRF-protected POST. The endpoint responds 303 to the exact callback with code,
+  original state and issuer; a styled accessible link remains in the fallback body. Native browser sessions must match state/issuer
   before consuming the code. No client password or embedded shared client secret.
 - `GET /messenger-mobile/v1/devices/` is a browser-session device management page;
   own-device revocation requires CSRF-protected POST. No bearer or cross-user
@@ -143,3 +143,21 @@ explicit UTC offset; native clients need a deliberate time-zone mapping.
 Uninstall retains credential tables and messaging data. Revoking a device does
 not uninstall modules or delete conversations. After rollback to old code, the
 additive column/tables may remain; do not remove them destructively as rollback.
+
+
+## Mobile handoff UX (1.4.1)
+
+The ordinary flow returns automatically through a `303 Location` after explicit browser consent. Narzan must show its own connecting/success UI only after it receives and validates the callback and completes token exchange. The browser authorization boundary remains necessary for existing website SSO/2FA; this change does not add native password collection or an embedded webview.
+
+The inline owner-provided Narzan mark and responsive light/dark CSS make consent/fallback readable without any third-party resource. A SHA-256 style hash permits only those exact static styles; scripts, frames and other resource loads remain denied. Form submission permits self and the validated callback scheme/origin so Chromium does not block the post-consent handoff. Redirect URI exact matching, state, issuer, PKCE, CSRF, token lifetime/rotation, logging restrictions and cookie/bearer isolation are unchanged. No live site is upgraded automatically.
+
+Browser/OS restrictions can require choosing the receiving app or pressing a fallback link. A redirect response body is not guaranteed to be displayed after a browser blocks/intercepts the Location; the native app must retain cancellation/retry. Treat mobile-browser E2E as a release gate in addition to HTTP contract tests.
+
+Verification on 2026-10-18: the disposable ProcessWire/MySQL server passed 19 real-TLS handoff checks, including CSRF rejection, exact 303 callback, cookie-free PKCE exchange, single-use code rejection, revocation and preservation of the browser web session. An Android 15 emulator with Chrome also completed the native browser-login test through the automatic 303 return without pressing the fallback link. This verifies that tested browser/device combination; the full native regression run and physical-device/browser variants remain separate gates. The original production checkout and live website were not modified.
+
+Primary implementation references checked 2026-10-18:
+
+- [RFC 8252: OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html): external user-agent and native return URI/PKCE boundaries.
+- [OpenID AppAuth Android](https://github.com/openid/AppAuth-Android#capturing-the-authorization-redirect): browser completion redirects to the registered app URI; webviews are not supported by that SDK. Narzan uses its existing protocol/client rather than introducing this SDK.
+- [Chrome: Android Intents](https://developer.chrome.com/docs/android/intents): resolver/user-gesture restrictions mean automatic app launch cannot be guaranteed across all contexts.
+- [GitLab's OAuth CSP correction](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/90082) and [W3C CSP redirect discussion](https://github.com/w3c/webappsec-csp/issues/8): Chromium can enforce form-action on the redirect after an authorization POST; restrict its additional source to the validated callback context.
