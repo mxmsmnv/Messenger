@@ -35,11 +35,14 @@ trait MessengerMemberFeatures {
 		if(!$own&&($row['status']==='invisible'||$row['status']==='offline'||(int)$row['expires_at']<=time()))return ['status'=>'offline','text'=>'','expires_at'=>0];
 		return ['status'=>(string)$row['status'],'text'=>$this->decryptValue((string)$row['status_text'],'Messenger|presence|'.$id),'expires_at'=>$own?(int)$row['expires_at']:0];
 	}
-	public function memberDirectory(User $actor,string $query='',int $limit=30,bool $contacts=false): array {
+	public function memberDirectory(User $actor,string $query='',int $limit=30,bool $contacts=false): array { return $this->directoryMembers($actor,$query,$limit,$contacts?'peers':'directory'); }
+	public function contactBook(User $actor,string $query='',int $limit=30): array { return $this->directoryMembers($actor,$query,$limit,'book'); }
+	private function directoryMembers(User $actor,string $query,int $limit,string $mode): array {
 		$this->assertActor($actor);$query=trim($query);if(mb_strlen($query)>120)throw new \InvalidArgumentException('Query is too long.');$limit=max(1,min(30,$limit));
-		if($contacts){$stmt=$this->wire('database')->prepare('SELECT contact_id FROM messenger_contacts WHERE owner_id=? ORDER BY added_at DESC,contact_id LIMIT 100');$stmt->execute([(int)$actor->id]);$candidates=[];foreach($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id)$candidates[]=$this->wire('users')->get((int)$id);}
+		if($mode==='book'){$stmt=$this->wire('database')->prepare('SELECT contact_id FROM messenger_contacts WHERE owner_id=? ORDER BY added_at DESC,contact_id LIMIT 100');$stmt->execute([(int)$actor->id]);$candidates=[];foreach($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id)$candidates[]=$this->wire('users')->get((int)$id);}
+		elseif($mode==='peers'){$stmt=$this->wire('database')->prepare('SELECT DISTINCT p.user_id FROM messenger_participants p JOIN messenger_participants own ON own.conversation_id=p.conversation_id AND own.user_id=? WHERE p.user_id<>? ORDER BY p.user_id LIMIT 100');$stmt->execute([(int)$actor->id,(int)$actor->id]);$candidates=[];foreach($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id)$candidates[]=$this->wire('users')->get((int)$id);}
 		else{$selector='id!='.(int)$actor->id.', include=all, sort=name, limit=90';if($query!=='')$selector.=', name*='.$this->wire('sanitizer')->selectorValue($query);$candidates=$this->wire('users')->find($selector);}
-		$result=[];foreach($candidates as $member){if(!$member instanceof User||!$this->canReceive($member)||$this->isBlockedEitherWay((int)$actor->id,(int)$member->id))continue;if($contacts&&$query!==''&&mb_stripos((string)$member->name,$query)===false)continue;
+		$result=[];foreach($candidates as $member){if(!$member instanceof User||!$this->canReceive($member)||$this->isBlockedEitherWay((int)$actor->id,(int)$member->id))continue;if($mode!=='directory'&&$query!==''&&mb_stripos((string)$member->name,$query)===false)continue;
 			$result[]=['id'=>(int)$member->id,'name'=>(string)$member->name,'title'=>(string)($member->get('display_name')?:$member->get('title')?:$member->name),'presence'=>$this->memberPresence((int)$member->id),'added_at'=>$this->contactAddedAt((int)$actor->id,(int)$member->id)];if(count($result)>=$limit)break;}
 		return $result;
 	}

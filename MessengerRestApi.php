@@ -55,6 +55,8 @@ final class MessengerRestApi extends Wire {
 					$this->allow($method,['POST']);$result=$this->messenger->deleteConversationForUser($this->bodyConversationId($actor,$body),$actor);break;
 				case 'expire':
 					$this->allow($method,['POST']);$result=$this->messenger->sweepExpiredMessages(100,true,$actor);break;
+				case 'contact-book':
+					$this->allow($method,['GET']);$result=$this->messenger->contactBook($actor,(string)$this->wire()->input->get('q'),$this->queryInt('limit',30,30));break;
 				case 'directory':
 				case 'contacts':
 					$this->allow($method,['GET']);$result=$this->messenger->memberDirectory($actor,(string)$this->wire()->input->get('q'),$this->queryInt('limit',30,30),$resource==='contacts');break;
