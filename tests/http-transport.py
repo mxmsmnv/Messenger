@@ -39,9 +39,10 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/start/',payload,browser=True);check(status==403,'browser POST without CSRF rejected')
             payload['fixture_csrf']='fixture_csrf_value';status,text,_=request('/messenger-api/v1/start/',payload,browser=True);check(status==200 and json.loads(text)['ok'],'valid browser CSRF still works')
             verifier='v'*64;data={'redirect_uri':'org.example.narzan://callback','state':'s'*32,'code_challenge_method':'S256','code_challenge':base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('='),'device_name':'HTTP fixture'}
-            status,text,_=request('/messenger-mobile/v1/authorize/?'+urllib.parse.urlencode(data),browser=True);check(status==200 and 'Allow this device' in text,'consent GET')
+            status,text,_=request('/messenger-mobile/v1/authorize/?'+urllib.parse.urlencode(data),browser=True);check(status==200 and 'Allow this device' in text,'consent GET');check('<html lang="en">' in text and 'name="viewport" content="width=device-width, initial-scale=1"' in text and 'aria-label="Allow this device"' in text,'mobile consent semantics')
             status,text,_=request('/messenger-mobile/v1/authorize/',data|{'approve':'yes'},browser=True,form=True);check(status==403,'consent CSRF mandatory')
             status,text,_=request('/messenger-mobile/v1/authorize/',data|{'approve':'yes','fixture_csrf':'fixture_csrf_value'},browser=True,form=True)
+            check('role="link" aria-label="Return to Narzan"' in text and '<strong>Return to Narzan</strong>' in text and 'name="viewport"' in text,'mobile return accessibility')
             import re
             callback=html.unescape(re.search(r'href="([^"]+)"',text).group(1));query=urllib.parse.parse_qs(urllib.parse.urlparse(callback).query)
             status,text,headers=request('/messenger-mobile/v1/token/',{'code':query['code'][0],'code_verifier':verifier,'redirect_uri':data['redirect_uri']})

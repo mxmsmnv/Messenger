@@ -4,6 +4,7 @@
 final class MessengerMobileHttp {
 	public function __construct(private Messenger $module) {}
 	private function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+	private function documentStart(string $title): string { return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'.$this->e($title).'</title></head><body>'; }
 	public function handle(string $resource): string {
 		header('Cache-Control: private, no-store, max-age=0'); header('Pragma: no-cache'); header('Referrer-Policy: no-referrer');
 		header('X-Content-Type-Options: nosniff'); header('X-Frame-Options: DENY'); header('X-Robots-Tag: noindex, nofollow');
@@ -47,7 +48,7 @@ final class MessengerMobileHttp {
 			$login=$auth->loginUrl($request);
 			if($method==='GET' && $login!==null){header('Location: '.$login,true,303);return '';}
 			http_response_code(401);
-			return '<!doctype html><meta charset="utf-8"><title>Narzan</title><h1>Sign in to this website</h1><p>Use the website’s normal sign-in, then reopen Narzan authorization. No password is sent to the app.</p>';
+			return $this->documentStart('Narzan').'<h1>Sign in to this website</h1><p>Use the website’s normal sign-in, then reopen Narzan authorization. No password is sent to the app.</p></body></html>';
 		}
 		$csrf=$wire->session->CSRF->getToken('messenger-mobile-consent');
 		if($method==='POST'){
@@ -56,12 +57,12 @@ final class MessengerMobileHttp {
 			$auth->rateLimit('approval',(string)$wire->user->id,10);
 			$callback=$auth->approve($wire->user,$request);
 			// CSP blocks scripts and third-party requests; a human click opens the configured app.
-			return '<!doctype html><meta charset="utf-8"><title>Narzan connected</title><h1>Authorization approved</h1><p><a rel="noreferrer" href="'.$this->e($callback).'">Return to Narzan</a></p>';
+			return $this->documentStart('Narzan connected').'<h1>Authorization approved</h1><p><a rel="noreferrer" role="link" aria-label="Return to Narzan" href="'.$this->e($callback).'"><strong>Return to Narzan</strong></a></p></body></html>';
 		}
-		$form='<!doctype html><meta charset="utf-8"><title>Connect Narzan</title><h1>Connect Narzan</h1><p>Account: '.$this->e((string)$wire->user->name).'</p><p>Device: '.$this->e($request['device_name']).'</p><p>This device can read and send your Messenger messages and manage your member messaging preferences. It receives no site administration access.</p><form method="post">';
+		$form=$this->documentStart('Connect Narzan').'<h1>Connect Narzan</h1><p>Account: '.$this->e((string)$wire->user->name).'</p><p>Device: '.$this->e($request['device_name']).'</p><p>This device can read and send your Messenger messages and manage your member messaging preferences. It receives no site administration access.</p><form method="post">';
 		foreach($request as $name=>$value)$form.='<input type="hidden" name="'.$this->e($name).'" value="'.$this->e($value).'">';
-		$form.='<input type="hidden" name="'.$this->e($csrf['name']).'" value="'.$this->e($csrf['value']).'"><button type="submit" name="approve" value="yes">Allow this device</button></form><p>Close this page to cancel.</p>';
-		return $form;
+		$form.='<input type="hidden" name="'.$this->e($csrf['name']).'" value="'.$this->e($csrf['value']).'"><button type="submit" aria-label="Allow this device" name="approve" value="yes">Allow this device</button></form><p>Close this page to cancel.</p>';
+		return $form.'</body></html>';
 	}
 	private function devices(MessengerMobileAuth $auth,string $method): string {
 		header('Content-Type: text/html; charset=utf-8');header("Content-Security-Policy: default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
@@ -73,9 +74,9 @@ final class MessengerMobileHttp {
 			if(!hash_equals((string)$csrf['value'],(string)$wire->input->post($csrf['name']))||(string)$wire->input->post('revoke')!=='yes')throw new MessengerMobileException('access_denied','Consent could not be verified.',403);
 			$auth->revokeDevice($wire->user,(string)$wire->input->post('connection_id'));
 		}
-		$out='<!doctype html><meta charset="utf-8"><title>Narzan devices</title><h1>Your Narzan devices</h1>';
+		$out=$this->documentStart('Narzan devices').'<h1>Your Narzan devices</h1>';
 		foreach($auth->devices($wire->user) as $device)$out.='<form method="post"><p>'.$this->e((string)$device['device_name']).'</p><input type="hidden" name="connection_id" value="'.$this->e($device['id']).'"><input type="hidden" name="'.$this->e($csrf['name']).'" value="'.$this->e($csrf['value']).'"><button name="revoke" value="yes">Revoke this device</button></form>';
-		return $out;
+		return $out.'</body></html>';
 	}
 
 	private function json(int $status,?array $result=null,string $error=''): string {
