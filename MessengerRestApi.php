@@ -42,6 +42,19 @@ final class MessengerRestApi extends Wire {
 						if($body['heartbeat']!==true||array_key_exists('status',$body)||array_key_exists('text',$body))throw new \InvalidArgumentException('Heartbeat must not change presence preferences.');
 						$result=$this->messenger->heartbeatPresence($actor);
 					}else $result=$this->messenger->setPresence($actor,(string)($body['status']??''),(string)($body['text']??''));break;
+				case 'contact':
+					$this->allow($method,['POST']);if(!isset($body['user_id'])||!is_int($body['user_id'])||!isset($body['added'])||!is_bool($body['added']))throw new \InvalidArgumentException('Contact and added flag are required.');
+					$result=$this->messenger->setContact($actor,$this->wire()->users->get($body['user_id']),$body['added']);break;
+				case 'retention':
+					$this->allow($method,['POST']);$seconds=$body['seconds']??0;$at=$body['at']??null;if(!is_int($seconds)||($at!==null&&!is_int($at)))throw new \InvalidArgumentException('Integer retention times are required.');
+					$result=$this->messenger->setConversationRetention($this->bodyConversationId($actor,$body),$actor,$seconds,$at);break;
+				case 'message-expiry':
+					$this->allow($method,['POST']);if(!isset($body['message_id'])||!is_int($body['message_id'])||!array_key_exists('expires_at',$body)||($body['expires_at']!==null&&!is_int($body['expires_at'])))throw new \InvalidArgumentException('Message and expiry are required.');
+					$result=$this->messenger->setMessageExpiry($body['message_id'],$actor,$body['expires_at']);break;
+				case 'delete-conversation':
+					$this->allow($method,['POST']);$result=$this->messenger->deleteConversationForUser($this->bodyConversationId($actor,$body),$actor);break;
+				case 'expire':
+					$this->allow($method,['POST']);$result=$this->messenger->sweepExpiredMessages(100,true,$actor);break;
 				case 'directory':
 				case 'contacts':
 					$this->allow($method,['GET']);$result=$this->messenger->memberDirectory($actor,(string)$this->wire()->input->get('q'),$this->queryInt('limit',30,30),$resource==='contacts');break;
@@ -118,6 +131,7 @@ final class MessengerRestApi extends Wire {
 					break;
 				case 'mute':
 					$this->allow($method, ['POST']);
+					if(array_key_exists('muted',$body)){if(!is_bool($body['muted']))throw new \InvalidArgumentException('Muted must be a boolean.');$result=$this->messenger->setConversationMuted($this->bodyConversationId($actor,$body),$actor,$body['muted']);break;}
 					$until = isset($body['until']) && $body['until'] !== '' ? (string)$body['until'] : null;
 					$this->messenger->setMuted($this->bodyConversationId($actor, $body), $actor, $until); $result = ['muted_until' => $until];
 					break;

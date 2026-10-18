@@ -37,10 +37,10 @@ trait MessengerMemberFeatures {
 	}
 	public function memberDirectory(User $actor,string $query='',int $limit=30,bool $contacts=false): array {
 		$this->assertActor($actor);$query=trim($query);if(mb_strlen($query)>120)throw new \InvalidArgumentException('Query is too long.');$limit=max(1,min(30,$limit));
-		if($contacts){$stmt=$this->wire('database')->prepare('SELECT DISTINCT p.user_id FROM messenger_participants p JOIN messenger_participants own ON own.conversation_id=p.conversation_id AND own.user_id=? WHERE p.user_id<>? ORDER BY p.user_id LIMIT 100');$stmt->execute([(int)$actor->id,(int)$actor->id]);$candidates=[];foreach($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id)$candidates[]=$this->wire('users')->get((int)$id);}
+		if($contacts){$stmt=$this->wire('database')->prepare('SELECT contact_id FROM messenger_contacts WHERE owner_id=? ORDER BY added_at DESC,contact_id LIMIT 100');$stmt->execute([(int)$actor->id]);$candidates=[];foreach($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id)$candidates[]=$this->wire('users')->get((int)$id);}
 		else{$selector='id!='.(int)$actor->id.', include=all, sort=name, limit=90';if($query!=='')$selector.=', name*='.$this->wire('sanitizer')->selectorValue($query);$candidates=$this->wire('users')->find($selector);}
 		$result=[];foreach($candidates as $member){if(!$member instanceof User||!$this->canReceive($member)||$this->isBlockedEitherWay((int)$actor->id,(int)$member->id))continue;if($contacts&&$query!==''&&mb_stripos((string)$member->name,$query)===false)continue;
-			$result[]=['id'=>(int)$member->id,'name'=>(string)$member->name,'title'=>(string)($member->get('display_name')?:$member->get('title')?:$member->name),'presence'=>$this->memberPresence((int)$member->id)];if(count($result)>=$limit)break;}
+			$result[]=['id'=>(int)$member->id,'name'=>(string)$member->name,'title'=>(string)($member->get('display_name')?:$member->get('title')?:$member->name),'presence'=>$this->memberPresence((int)$member->id),'added_at'=>$this->contactAddedAt((int)$actor->id,(int)$member->id)];if(count($result)>=$limit)break;}
 		return $result;
 	}
 	public function sendAttachment(int $conversationId,User $actor,array $input,string $clientId): array {
@@ -72,13 +72,14 @@ trait MessengerMemberFeatures {
 		$this->execute('INSERT INTO messenger_attachments (message_id,metadata,payload) VALUES (?,?,?)',[$messageId,$this->encryptValue(json_encode($metadata,JSON_THROW_ON_ERROR),'Messenger|attachment-metadata|'.$messageId),$this->encryptValue($payload,'Messenger|attachment|'.$messageId)]);$metadata['id']=(int)$this->wire('database')->lastInsertId();return $metadata;
 	}
 	private function messageAttachment(int $messageId,bool $bytes=false): ?array {
+		$expiry=$this->scalar('SELECT COALESCE(expires_at,0) FROM messenger_messages WHERE id=?',[$messageId]);if($expiry>0&&$expiry<=time())return null;
 		$column=$bytes?'payload':'metadata';$stmt=$this->wire('database')->prepare('SELECT id,'.$column.' FROM messenger_attachments WHERE message_id=?');$stmt->execute([$messageId]);$row=$stmt->fetch(\PDO::FETCH_ASSOC);if(!$row)return null;
 		$item=json_decode($this->decryptValue((string)$row[$column],($bytes?'Messenger|attachment|':'Messenger|attachment-metadata|').$messageId),true,512,JSON_THROW_ON_ERROR);$item['id']=(int)$row['id'];if(!$bytes)unset($item['data_base64']);return $item;
 	}
 	public function attachment(User $actor,int $attachmentId): array {
-		$this->assertActor($actor);$stmt=$this->wire('database')->prepare('SELECT m.id,m.conversation_id,m.deleted_at,m.moderation_state FROM messenger_attachments a JOIN messenger_messages m ON m.id=a.message_id WHERE a.id=?');$stmt->execute([$attachmentId]);$message=$stmt->fetch(\PDO::FETCH_ASSOC);
-		if(!$message||$message['deleted_at']||$message['moderation_state']!=='visible')throw new WirePermissionException('Attachment unavailable.');
-		$conversation=$this->conversation((int)$message['conversation_id'],$actor);if(!$conversation||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked']||!$this->canReceive($this->wire('users')->get((int)$conversation['other_user']['id']))||$this->scalar('SELECT COUNT(*) FROM messenger_message_hides WHERE message_id=? AND user_id=?',[(int)$message['id'],(int)$actor->id]))throw new WirePermissionException('Attachment unavailable.');
+		$this->assertActor($actor);$stmt=$this->wire('database')->prepare('SELECT m.id,m.conversation_id,m.deleted_at,m.moderation_state,m.expires_at FROM messenger_attachments a JOIN messenger_messages m ON m.id=a.message_id WHERE a.id=?');$stmt->execute([$attachmentId]);$message=$stmt->fetch(\PDO::FETCH_ASSOC);
+		if(!$message||($message['expires_at']!==null&&(int)$message['expires_at']<=time())||$message['deleted_at']||$message['moderation_state']!=='visible')throw new WirePermissionException('Attachment unavailable.');
+		$conversation=$this->conversation((int)$message['conversation_id'],$actor);if(!$conversation||(int)$message['id']<=(int)($conversation['hidden_through_message_id']??0)||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked']||!$this->canReceive($this->wire('users')->get((int)$conversation['other_user']['id']))||$this->scalar('SELECT COUNT(*) FROM messenger_message_hides WHERE message_id=? AND user_id=?',[(int)$message['id'],(int)$actor->id]))throw new WirePermissionException('Attachment unavailable.');
 		return $this->messageAttachment((int)$message['id'],true)??throw new WirePermissionException('Attachment unavailable.');
 	}
 }
