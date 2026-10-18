@@ -2,6 +2,14 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.1] - 2026-10-18
+
+### Fixed
+
+- Return to the registered native app with HTTP 303 immediately after valid browser approval; preserve a branded accessible fallback without presenting a raw technical success page.
+- Render mobile identity consent/fallback with the owner-provided Narzan mark, responsive light/dark styles and a strict hash-based CSP. No external resources or JavaScript are introduced. Scope form-action to self plus the already validated callback scheme/origin for Chromium's post-form redirect checks.
+- Keep browser SSO/2FA, CSRF, exact callback validation, PKCE and private token handling intact. Browser/OS chooser behavior still requires native runtime verification; production sites are not changed automatically.
+
 ## [1.4.0] - 2026-10-18
 
 ### Added

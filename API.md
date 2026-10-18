@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.4.0 (ProcessWire module version `140`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.4.1 (ProcessWire module version `141`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -226,3 +226,12 @@ Discovery adds `contact_book`, `chat_mute`, `chat_delete`, and `retention`. New 
 For installations needing timely physical cleanup during inactivity, the owning operator may explicitly configure its existing maintenance runner to call `sweepExpiredMessages(100,true)` in bounded batches, or use `bin/messenger expiry --root=/path/to/site --dry-run|--execute --limit=100` after enabling CLI. No local daemon, cron entry, server scheduler, email delivery, or retention default is created/enabled by this release. Without a runner, read access expires at the deadline and physical deletion happens at the next relevant authorized request. Tombstone/audit IDs, contact timestamps and previously filed report evidence are retained; this is not an account-erasure system. Back up and review rollback before applying schema changes to a consuming site.
 
 Public PHP additions: `contactBook(User,string='',int=30)`, `setContact(User,User,bool)`, `removeContact(User,int)`, `setConversationMuted(int,User,bool)`, `setConversationRetention(int,User,int=0,?int=null)`, `setMessageExpiry(int,User,?int)`, `deleteConversationForUser(int,User)`, and `sweepExpiredMessages(int=100,bool=false,?User=null)`. Maintenance calls without an actor are trusted server-side operations, not a remotely available unscoped export/delete API.
+
+
+## Native browser return (1.4.1)
+
+After browser sign-in and a valid explicit CSRF-protected approval POST, the mobile authorization endpoint returns HTTP `303` with `Location` set to the exact validated, allow-listed app callback carrying the short-lived code, original state and issuer. Native clients still verify callback/state/issuer and exchange once using PKCE before showing connection success. There is no password endpoint or embedded webview.
+
+The consent and fallback HTML are self-contained Narzan-branded documents with light/dark styles and no external fonts, images, scripts or network requests. CSP allows only the exact embedded CSS hash. The originating consent document keeps `form-action 'self'` plus the already validated callback's private scheme (or exact HTTPS origin), because Chromium also checks redirect targets after form submission. The server's exact callback allow-list remains authoritative. Other mobile identity documents keep self-only form submission.
+
+A styled accessible Return to Narzan link remains in the 303 response body for agents that render it; some browsers intercept/follow the Location without displaying that body. App chooser/permission prompts and fallback rendering depend on the browser/OS. Native cancellation and retry must remain available; this does not promise a chooser-free return on every browser. It does not replace arbitrary site SSO, passkeys or two-factor authentication with native password entry.
