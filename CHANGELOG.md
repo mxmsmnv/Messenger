@@ -2,6 +2,15 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.0] - 2026-10-18
+
+### Added
+
+- Explicit private contact books with stable `added_at`, independent of conversations; member discovery remains available separately.
+- Durable per-participant chat mute and personal conversation deletion. Personal deletion hides existing messages and private attachments only for that participant; a later message restores the chat while older history stays hidden.
+- Shared future-message auto-delete policies (one day, week, 30 days, or a custom UTC deadline) and author-only individual message expiry. Server reads enforce expiry immediately; bounded opportunistic/maintenance cleanup clears message ciphertext, encrypted attachment data and pending notification entries, retaining tombstones and audit IDs.
+- Capability negotiation for contact books, chat mute/deletion and retention. Existing chats default to no expiry; no background worker is installed or enabled.
+
 ## [1.3.0] - 2026-10-18
 
 ### Added
