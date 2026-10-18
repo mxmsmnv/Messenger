@@ -51,7 +51,7 @@ final class MessengerMobileAuth {
 		return ['protocol'=>'narzan-v1','issuer'=>$origin,'site_id'=>$this->digest('site|' . $origin . '|' . $base),
 			'authorize_endpoint'=>$base . '/messenger-mobile/v1/authorize/', 'token_endpoint'=>$base . '/messenger-mobile/v1/token/',
 			'refresh_endpoint'=>$base . '/messenger-mobile/v1/refresh/', 'revoke_endpoint'=>$base . '/messenger-mobile/v1/revoke/',
-			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>false];
+			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>false, 'features'=>['presence','directory','attachments','read_receipts']];
 	}
 	public function authorizationRequest(array $input): array {
 		$this->origin();

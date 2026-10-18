@@ -18,6 +18,8 @@ If this module saves you time, you can [sponsor the work](https://smnv.org/spons
 - Configurable first contact: open, Message Requests, or a site-owned policy hook.
 - Request counts, accept/decline, pending-send limits, unread watermarks, archive, mute, and notification preferences.
 - Edit, delete-for-everyone, hide-for-self, block/unblock, and report actions with enforced ownership and time windows.
+- Member directories, expiring presence with invisible mode, and authoritative peer read cursors.
+- Private encrypted file and voice attachments in accepted conversations (native API).
 - Cursor pagination, idempotent message creation, recipient search, and bounded encrypted-message search.
 - Per-member rate limits, temporary restrictions, immutable report evidence, and audited moderation decisions.
 - Separate permissions for moderation, evidence viewing, administration, export, and deletion boundaries.

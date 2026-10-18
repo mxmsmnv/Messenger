@@ -2,6 +2,15 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.3.0] - 2026-10-18
+
+### Added
+
+- Member presence with a 90-second heartbeat, encrypted bounded status text, invisible/offline privacy, and eligible member/contact directories.
+- Authoritative peer read cursors, suppressed for blocked or restricted peers.
+- Atomic, idempotent file and voice messages in accepted conversations. File metadata and bytes use authenticated encrypted database envelopes, with membership, hiding, deletion, block and restriction checks on every private download. No public file URLs or inline active-content rendering.
+- Bounded JSON transfer: 8 MiB files, 4 MiB voice clips, optional 120-second recording duration. Existing text API and browser frontend contracts remain compatible.
+
 ## [1.2.1] - 2026-10-18
 
 ### Fixed

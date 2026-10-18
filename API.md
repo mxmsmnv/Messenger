@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.2.1 (ProcessWire module version `121`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.3.0 (ProcessWire module version `130`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -193,3 +193,20 @@ Defaults are returned by `Messenger::getDefaultConfig()`: public path `/messages
 `handleRestRequest()`, `getModuleConfigInputfields()`, `install()`, `upgrade()`, and `uninstall()` are framework lifecycle/transport entry points, not site-domain APIs. Database helpers, encryption helpers, audit helpers, `MessengerRestApi`, and `ProcessMessenger` internals are unsupported.
 
 Do not query or write `messenger_*` tables, expose `direct_key`, client IDs, audit metadata, or evidence snapshots, or call private/protected methods. Uninstall retains tables and permissions. There are no deprecated public APIs in 1.1.0.
+
+
+## Narzan member features (1.3.0)
+
+Discovery advertises `features:["presence","directory","attachments","read_receipts"]`. Clients must treat missing features as unsupported and preserve compatibility with older servers.
+
+All routes below use the existing `/messenger-api/v1/{resource}/` transport and its cookie/CSRF or native bearer authentication. They do not enable mobile identity automatically.
+
+- `GET presence`: own `{status,text,expires_at}`; `expires_at` is Unix seconds. `POST presence {status,text}` selects `online`, `away`, `busy`, `invisible` or `offline` and refreshes a 90-second heartbeat. Status text is at most 120 characters, encrypted at rest. Owner preference survives expiry; peers see expired/invisible/offline as exactly `{status:"offline",text:"",expires_at:0}`.
+- `GET directory?q=&limit=30`: eligible members, bounded to 30; empty query provides the default directory. `GET contacts` uses existing conversation peers. Both exclude self, either-direction blocks and restricted recipients. Directory is a member discovery surface, not an external directory or address-book upload. Responses are member objects with `presence`.
+- Conversation objects add integer `other_last_read_message_id`; blocked/restricted peers expose zero. This is a read watermark, not a device-delivery receipt. A successful send is server acknowledgement; a peer read cursor at or above the message ID is read.
+- `POST send-attachment {id,client_id,body?,filename,mime_type,kind,data_base64,duration_ms?}` atomically creates a message plus encrypted attachment. Existing accepted conversations only; no files in message requests. `kind` is `file` or `voice`; maximum decoded sizes are 8 MiB and 4 MiB respectively. Empty files are rejected, filenames are bounded to 180 characters and cannot contain paths/control characters. Voice requires a declared and detected supported audio/container MIME; duration is optional 1–120000 milliseconds (client supplied, not independently measured). Generic files use the detected MIME and are treated as opaque bytes. The same client ID binds the entire canonical payload, including bytes, name, kind and duration; conflicts return 409. Replays produce one message and one attachment.
+- Message objects optionally add `attachment:{id,filename,mime_type,size,kind,duration_ms}`. `GET attachment?id=123` returns this object plus `data_base64`, only to an eligible unblocked participant in the accepted active conversation while the message remains visible and undeleted. No permanent/public download URL exists. Clients must write files to private storage and share through explicit platform mechanisms; do not render HTML/SVG as application content or attach bearer tokens to external URLs.
+
+The JSON request body limit is 12 MiB only for `send-attachment` (64 KiB elsewhere). Configure the consuming HTTP server/PHP body limits to allow that request size. Encrypted metadata is stored separately, so ordinary thread polling never selects or decrypts attachment bytes. Downloads are JSON base64; clients should bound responses to 12 MiB. Transfer is memory bounded by the stated limit, not streaming/resumable. These limits are per attachment, not a total user or installation storage quota. Before activation, the site owner must provision storage capacity and choose retention/deletion policy. The 120-second duration field validates client metadata; server-side codec duration parsing is not implemented, so this is not a server-enforced media duration guarantee. Audio transcription, virus scanning, push, delivery-to-device receipts and media retention/purge jobs are not implemented. Deleted/hidden media is denied at download, and encrypted storage is retained consistently with existing module uninstall behavior. Existing web clients display the caption/filename fallback; their attachment controls are unchanged.
+
+Public PHP methods: `presence(User)`, `setPresence(User,string,string='')`, `memberDirectory(User,string='',int=30,bool=false)`, `sendAttachment(int,User,array,string)`, and `attachment(User,int)`. They enforce the same domain authorization as REST. Existing `sendMessage` signature is unchanged.

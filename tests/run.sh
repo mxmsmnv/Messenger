@@ -6,6 +6,7 @@ node --check assets/messenger.js
 node --check assets/messenger-admin.js
 php tests/contracts.php
 php tests/mobile-domain.php
+php tests/member-features.php
 php tests/mobile-auth.php
 php tests/web-mobile-transport.php
 python3 tests/http-transport.py

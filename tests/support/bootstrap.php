@@ -33,6 +33,7 @@ function fixture():array {
  $m=new AuditMessenger();$m->services=['database'=>$db,'users'=>$users,'user'=>new User(11),'config'=>new class {public string $tableSalt='synthetic-audit-only'; public bool $https=true; public object $urls; public function __construct(){$this->urls=(object)['root'=>'/'];} public function get($key){return null;}}];
  $m->set('mobile_enabled',1)->set('mobile_origin','https://example.test')->set('mobile_redirect_uris','org.example.narzan://callback');
  MessengerMobileAuth::install($db);
+ $install=new \ReflectionMethod($m,'installMemberFeatures');$install->invoke($m);
  return [$m,$db,new User(11),new User(22),new User(33)];
 }
 
