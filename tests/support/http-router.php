@@ -3,6 +3,8 @@
 if(PHP_SAPI!=='cli-server'||!in_array($_SERVER['REMOTE_ADDR']??'',['127.0.0.1','::1'],true)){http_response_code(404);exit;}
 require __DIR__.'/bootstrap.php';require dirname(__DIR__,2).'/src/MessengerMobileHttp.php';
 [$m,$db,$a]=fixture();
+// Synthetic TLS only for fixture tests. Real HTTPS is a separate integration gate.
+$_SERVER['HTTPS']='on';
 $csrf=new class {public function getToken($name){return ['name'=>'fixture_csrf','value'=>'fixture_csrf_value'];}};
 $session=new class($csrf) {private array $data=[];public function __construct(public object $CSRF){}public function get($k){return $this->data[$k]??null;}public function set($k,$v){$this->data[$k]=$v;}};
 $input=new class {public function get($key){return $_GET[$key]??null;}public function post($key){return $_POST[$key]??null;}};

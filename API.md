@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.2.0 (ProcessWire module version `120`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.2.1 (ProcessWire module version `121`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 

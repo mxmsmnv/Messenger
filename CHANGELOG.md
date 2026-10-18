@@ -2,6 +2,13 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.2.1] - 2026-10-18
+
+### Fixed
+
+- Require a trusted web-server HTTPS indicator for native identity and bearer requests. ProcessWire may infer its HTTPS flag from a client-supplied X-Forwarded-Proto header; that header alone no longer passes the mobile transport check. TLS proxies must configure the HTTPS server environment explicitly.
+- Verified fresh installation and member/browser PKCE flows on disposable real ProcessWire/MySQL over locally verified TLS; see NARZAN.md for remaining deployment gates.
+
 ## [1.2.0] - 2026-10-18
 
 ### Added

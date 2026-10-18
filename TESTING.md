@@ -20,8 +20,9 @@ existing contracts, syntax checks, domain replay/visibility/policy/sync tests,
 PKCE/rotation/revocation tests, browser/native authority tests and disposable
 HTTP request checks. Fixture services and SQLite are intentionally isolated
 from the consuming website. The HTTP server is task-owned and always stopped.
-Real ProcessWire/MySQL, actual HTTPS, concurrent transactions and physical app
-callbacks remain separate release gates in NARZAN.md.
+The October 18 disposable real ProcessWire/MySQL, local TLS, upgrade, browser UI
+and concurrent transaction checks are recorded in NARZAN.md. Consuming-site
+configuration, PHP8.1 and physical app callbacks remain separate release gates.
 
 ## Test commands
 

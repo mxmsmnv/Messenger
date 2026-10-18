@@ -39,7 +39,10 @@ final class MessengerMobileAuth {
 		$origin = $this->origin(); $p = parse_url($origin);
 		$host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
 		$expected = strtolower((string)$p['host'] . (isset($p['port']) && (int)$p['port'] !== 443 ? ':' . $p['port'] : ''));
-		$https = (bool)$this->module->wire('config')->https;
+		// ProcessWire can infer config->https from an untrusted X-Forwarded-Proto.
+		// Require the web server's TLS indicator too; a trusted TLS proxy must set HTTPS.
+		$https = (bool)$this->module->wire('config')->https
+			&& in_array(strtolower((string)($_SERVER['HTTPS'] ?? '')), ['on', '1'], true);
 		if(!$https || $host !== $expected) $this->fail('invalid_origin', 400);
 	}
 	public function discovery(): array {
