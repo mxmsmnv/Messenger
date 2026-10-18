@@ -1,6 +1,8 @@
 <?php declare(strict_types=1); namespace ProcessWire;
 require __DIR__.'/support/bootstrap.php';
 [$m,$db,$a,$b,$c]=fixture();$m->set('first_contact_mode','open');$first=$m->startConversation($a,$b,'hello','media_fixture_0001');$id=$first['conversation']['id'];
+$invalidMedia=['filename'=>'bad.txt','mime_type'=>'text/plain','kind'=>'file','data_base64'=>'not-base64!'];
+denied(fn()=>$m->sendAttachment($id,$c,$invalidMedia,'media_outsider_0001'));
 $input=['filename'=>'test.txt','mime_type'=>'text/plain','kind'=>'file','data_base64'=>base64_encode('Synthetic private attachment'),'body'=>'A file'];
 $message=$m->sendAttachment($id,$a,$input,'media_fixture_0002');$attachment=$message['attachment'];check($attachment['size']===28&&$attachment['kind']==='file'&&!isset($attachment['data_base64']),'bounded metadata');
 $stored=$db->query('SELECT payload FROM messenger_attachments')->fetchColumn();check(str_starts_with($stored,'menc:v1:')&&!str_contains($stored,'test.txt')&&!str_contains($stored,$input['data_base64']),'all attachment content and filename encrypted');
@@ -14,11 +16,11 @@ $m->setPresence($b,'busy','Deep work');check($m->conversation($id,$a)['other_use
 check(!str_contains($db->query('SELECT status_text FROM messenger_presence')->fetchColumn(),'Deep work'),'status text encrypted');
 $m->setPresence($b,'invisible','Secret');check($m->presence($b)['status']==='invisible','owner preserves invisible');check($m->conversation($id,$a)['other_user']['presence']===['status'=>'offline','text'=>'','expires_at'=>0],'invisible exact offline representation');
 $m->setPresence($b,'online','');$db->exec('UPDATE messenger_presence SET expires_at=0');check($m->conversation($id,$a)['other_user']['presence']['status']==='offline','heartbeat expires');
-$db->exec('INSERT INTO messenger_blocks VALUES (22,11)');denied(fn()=>$m->attachment($a,$attachment['id']));denied(fn()=>$m->sendAttachment($id,$a,$input,'media_fixture_0003'));check($m->conversation($id,$a)['other_last_read_message_id']===0,'blocked peer cursor masked');
+$db->exec('INSERT INTO messenger_blocks VALUES (22,11)');denied(fn()=>$m->sendAttachment($id,$a,$invalidMedia,'media_blocked_0001'));denied(fn()=>$m->attachment($a,$attachment['id']));denied(fn()=>$m->sendAttachment($id,$a,$input,'media_fixture_0003'));check($m->conversation($id,$a)['other_last_read_message_id']===0,'blocked peer cursor masked');
 $db->exec('DELETE FROM messenger_blocks');$db->exec("INSERT INTO messenger_restrictions VALUES (22,'suspended','fixture',NULL)");denied(fn()=>$m->attachment($a,$attachment['id']));denied(fn()=>$m->attachment($b,$attachment['id']));
 $db->exec('DELETE FROM messenger_restrictions');$m->hideMessage($message['id'],$b);denied(fn()=>$m->attachment($b,$attachment['id']));check($m->attachment($a,$attachment['id'])['size']===28,'sender still sees own unhidden attachment');
 $m->deleteMessage($message['id'],$a);denied(fn()=>$m->attachment($a,$attachment['id']));
-[$m,$db,$a,$b]=fixture();$r=$m->startConversation($a,$b,'request','media_pending_0001');denied(fn()=>$m->sendAttachment($r['conversation']['id'],$a,$input,'media_pending_0002'));check($db->query('SELECT COUNT(*) FROM messenger_attachments')->fetchColumn()===0,'pending request cannot carry files');
+[$m,$db,$a,$b]=fixture();$r=$m->startConversation($a,$b,'request','media_pending_0001');denied(fn()=>$m->sendAttachment($r['conversation']['id'],$a,$invalidMedia,'media_pending_0003'));denied(fn()=>$m->sendAttachment($r['conversation']['id'],$a,$input,'media_pending_0002'));check($db->query('SELECT COUNT(*) FROM messenger_attachments')->fetchColumn()===0,'pending request cannot carry files');
 $validate=new \ReflectionMethod($m,'validateAttachment');
 foreach([['filename'=>'../bad'],['data_base64'=>'invalid!'],['data_base64'=>''],['filename'=>"bad\nname"],['kind'=>'voice'],['mime_type'=>'text/html;script'],['duration_ms'=>120001],['data_base64'=>base64_encode(str_repeat('x',8*1024*1024+1))]] as $patch){try{$validate->invoke($m,array_replace($input,$patch));throw new \RuntimeException('Expected invalid attachment');}catch(\InvalidArgumentException $e){check(true,'invalid media rejected');}}
 // A valid tiny WAV voice packet, independent of native codecs.

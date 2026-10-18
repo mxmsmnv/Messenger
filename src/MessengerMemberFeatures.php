@@ -36,7 +36,12 @@ trait MessengerMemberFeatures {
 		return $result;
 	}
 	public function sendAttachment(int $conversationId,User $actor,array $input,string $clientId): array {
-		$this->assertActor($actor);$attachment=$this->validateAttachment($input);
+		$this->assertActor($actor);
+		// Reject unavailable conversations before decoding or sniffing a large media payload.
+		// sendMessageWithAttachment repeats these checks under its transaction lock.
+		$conversation=$this->conversation($conversationId,$actor);
+		if(!$conversation||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked']||!$this->canReceive($this->wire('users')->get((int)$conversation['other_user']['id'])))throw new WirePermissionException('Attachment unavailable.');
+		$attachment=$this->validateAttachment($input);
 		$body=isset($input['body'])&&is_string($input['body'])?trim($input['body']):'';
 		if($body==='')$body=$attachment['kind']==='voice'?'Voice message':$attachment['filename'];
 		return $this->sendMessageWithAttachment($conversationId,$actor,$body,$clientId,$attachment);
