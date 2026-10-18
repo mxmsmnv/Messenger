@@ -9,7 +9,7 @@ require_once __DIR__ . '/src/MessengerMobileAuth.php';
 class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerBroadcasts;
 
-	public const VERSION = 120;
+	public const VERSION = 121;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -33,7 +33,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 120,
+			'version' => 121,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',

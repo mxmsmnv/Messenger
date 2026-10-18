@@ -1,4 +1,4 @@
-# Narzan native identity — Messenger 1.2.0 release candidate
+# Narzan native identity — Messenger 1.2.1 release candidate
 
 This implementation is a narrow member-device protocol using authorization codes
 and PKCE, not a general-purpose OAuth/OIDC identity provider. It does not depend
@@ -11,12 +11,15 @@ Mobile access is **off by default**. No real site was upgraded or enabled by the
 source change. Before activation on a named development site:
 
 1. Back up the database and verify the existing encryption key is unchanged.
-2. Upgrade the paired Messenger/ProcessMessenger modules to 120; this adds the
+2. Upgrade the paired Messenger/ProcessMessenger modules to 121; this adds the
    `request_hash` column and four empty `messenger_mobile_*` tables. Existing
    message ciphertext/AAD are not rewritten. Permissions are not granted to roles.
 3. Set `mobile_origin` to the operator-verified exact HTTPS origin, with optional
    port and no path. ProcessWire must correctly recognize HTTPS behind any trusted
-   proxy; untrusted forwarded headers are not accepted as transport proof.
+   proxy. Native routes additionally require the web server HTTPS environment value
+   to be on or 1. A TLS reverse proxy must set this through trusted server/FastCGI
+   configuration and strip client forwarded headers; X-Forwarded-Proto alone is
+   rejected even when ProcessWire infers config->https from it.
 4. Set `mobile_redirect_uris` to exact registered Narzan callbacks, one per line.
    There is deliberately no invented production callback or bundle identifier.
    Only HTTPS or reverse-DNS private app schemes (for example org.example.app)
@@ -119,13 +122,23 @@ ProcessWire services and disposable SQLite. HTTP tests exercise real PHP request
 body/header handling on an owned localhost server that is always stopped. TLS is
 represented by fixture configuration, not an actual HTTPS certificate handshake.
 
-Before production: test a disposable **real ProcessWire/MySQL** install and
-110→120 upgrade; real hooks; anonymous/member/restricted/blocked roles;
-unchanged web CSRF/browser UI; real site's SSO/2FA/login return handling;
-reverse proxy/cache/Authorization forwarding; concurrent code exchange/refresh;
-physical iOS/Android callbacks; backup and rollback. The isolated tests are not
-proof that those deployment gates passed. Test at the PHP8.1 minimum separately
-when that runtime is available.
+A bounded October 18 integration run used disposable ProcessWire 3.0.255,
+MySQL 8.4.9 and PHP 8.5.8: fresh 121 installation, 110→121 upgrade preserving
+ciphertext/key, retained-data reinstall, old-code rollback, actual local TLS,
+browser session/CSRF and native PKCE/refresh/revoke flows, three concurrent code
+exchange races and three refresh races, restrictions and real policy hooks.
+Chrome verified the existing web UI loading, sending and editing messages.
+The TLS client trusted only the task-local certificate; no system trust or live
+site settings changed. A local TLS proxy forwarded Authorization and supplied a
+server HTTPS indicator through a private bridge; direct HTTP with only a forged
+X-Forwarded-Proto was rejected after the 1.2.1 correction.
+
+Before production, still verify the consuming site's SSO/2FA/login return flow,
+its TLS/reverse-proxy and cache configuration, its exact ProcessWire/PHP versions,
+and physical iOS/Android callbacks. The local proxy is not evidence about a
+production proxy, CDN or browser trust chain. Test at the PHP8.1 minimum
+separately when that runtime is available. Legacy v1 timestamps still lack an
+explicit UTC offset; native clients need a deliberate time-zone mapping.
 
 Uninstall retains credential tables and messaging data. Revoking a device does
 not uninstall modules or delete conversations. After rollback to old code, the
