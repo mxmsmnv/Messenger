@@ -22,6 +22,7 @@ If this module saves you time, you can [sponsor the work](https://smnv.org/spons
 - Per-member rate limits, temporary restrictions, immutable report evidence, and audited moderation decisions.
 - Separate permissions for moderation, evidence viewing, administration, export, and deletion boundaries.
 - Same-origin JSON API with ProcessWire sessions, CSRF validation, private headers, and no CORS opt-in.
+- Optional Narzan native authentication with browser consent, S256 PKCE, short-lived bearer tokens and per-device revocation; disabled by default.
 - XChaCha20-Poly1305 authenticated encryption at rest for messages and report content.
 - Selectable WireMail provider and preview-first local notification worker.
 - Responsive member UI plus an AdminThemeUikit dashboard, report queue, restrictions workspace, and settings navigation.
@@ -110,6 +111,7 @@ Retention settings describe policy only. Permanent purge, anonymization, export,
 
 ## Documentation
 
+- [NARZAN.md](NARZAN.md) — native protocol, web compatibility and activation gates.
 - [API.md](API.md) — supported PHP and REST interfaces
 - [EXAMPLES.md](EXAMPLES.md) — site integration examples
 - [AGENTS.md](AGENTS.md) — Olivia and coding-agent safety guidance

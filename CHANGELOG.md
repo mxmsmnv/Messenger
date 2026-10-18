@@ -2,6 +2,30 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.2.0] - 2026-10-18
+
+### Added
+
+- Optional Narzan mobile authorization, disabled by default: exact HTTPS issuer and callback allow-list, browser session/CSRF consent, S256 PKCE, single-use two-minute codes, ten-minute access tokens, rotating thirty-day refresh tokens and connection revocation.
+- Device credentials stored only as keyed hashes; refresh reuse revokes the connection. Native requests reject cookie/bearer mixing and never create a browser login session.
+- Browser device-management page with CSRF-protected own-device revocation and bounded device metadata.
+- Additive `GET sync` opaque revisions for conservative invalidate-and-refetch of cached messages, including edits and deletes older than the message-ID cursor. This is not an incremental event feed.
+- Isolated domain, identity, transport and real HTTP fixture checks, without using a consuming site's database.
+
+### Fixed
+
+- Retry recognition precedes new-message pending/rate limits, while actor, membership and recipient safety remain mandatory. Bind each client ID to the original conversation and immutable keyed body fingerprint; conflicting requests return 409.
+- Keep hidden-for-self messages out of inbox previews and unread counts.
+- Revalidate recipient eligibility outside policy hooks and when sending into existing conversations; fail closed when restriction lookup fails.
+- Couple edits, deletes, hides and member state updates to their invalidation audit in transactions. Remove internal request/client fingerprints from edit responses.
+
+### Compatibility
+
+- Browser routes, session authority, JSON envelopes, CSRF token format and existing member endpoints remain supported. A separate mobile endpoint family is opt-in; no native token permits administrative actions.
+- Upgrade adds an immutable request fingerprint column and four retained mobile credential/rate tables. Existing ciphertext, associated data, encryption keys and browser sessions are not rewritten.
+- Legacy edited/deleted messages without an original request fingerprint reject ambiguous retries rather than inventing a successful match.
+- No site deployment, app registration, push delivery or production readiness is implied by this release candidate. See `NARZAN.md` for activation and disposable-site gates.
+
 ## [1.1.0] - 2026-10-01
 
 ### Added

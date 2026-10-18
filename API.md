@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.1.0 (ProcessWire module version `110`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.2.0 (ProcessWire module version `120`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -155,6 +155,34 @@ POST resources:
 - `block`, `unblock`, `report`
 
 Responses opt into no CORS access and emit private/no-store, noindex, nosniff, and frame-denial headers. REST errors are normalized; do not use them as an existence oracle.
+
+## Narzan mobile access and cache synchronization
+
+The browser v1 contract above remains supported. Mobile identity is a separate opt-in
+endpoint family. See [NARZAN.md](NARZAN.md) for discovery, consent, tokens, transport,
+revocation and deployment prerequisites. A valid bearer may call the member v1 API;
+cookie/bearer mixing is rejected and a failed bearer never falls back to a cookie.
+Native `session` responses omit browser CSRF and do not advertise moderation.
+
+```php
+syncState(User $actor, string $revision = ''): array
+```
+
+`GET /messenger-api/v1/sync/?revision=<previous opaque revision>` returns
+`revision`, `changed`, `reset_required` and `strategy=invalidate_and_refetch`.
+A first request requires an initial snapshot. When reset is required, invalidate
+cached member content and refetch through participant-checked pagination; do not
+use `messages?after=` to reconcile old edits/deletes. Check the revision again
+before publishing a rebuilt snapshot. No audit identifiers/content are returned.
+This conservative strategy does not claim an incremental ordered event feed.
+Existing web polling does not automatically consume this new endpoint.
+
+Replays must match the original conversation and keyed body fingerprint. A replay
+returns the current authorized message representation, including its edit/delete
+state. Reusing a key with another operation returns HTTP409 and
+`code=idempotency_conflict`. Existing edited/deleted legacy rows without an immutable
+fingerprint cannot safely be replayed. Internal client/fingerprint fields are not
+public response data.
 
 ## Configuration
 

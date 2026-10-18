@@ -10,19 +10,35 @@ final class MessengerRestApi extends Wire {
 
 	public function handle(string $version, string $resource): string {
 		$this->headers();
+		$originalActor = $this->wire()->user;
+		$native = false;
 		try {
 			if(strtolower(trim($version)) !== Messenger::REST_API_VERSION) return $this->response(404, null, 'Not found.');
 			$resource = strtolower(trim($resource));
 			if(!preg_match('/^[a-z-]{2,32}$/', $resource)) return $this->response(404, null, 'Not found.');
 			$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 			$actor = $this->wire()->user;
-			if($resource === 'session') { $this->allow($method, ['GET']); return $this->sessionResponse($actor); }
+			$authorization = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? '');
+			if(preg_match('/^Bearer(?:\\s|$)/i', $authorization)) {
+				if(!empty($_SERVER['HTTP_COOKIE'])) throw new MessengerMobileException('mixed_credentials', 'Native requests must not include cookies.');
+				$auth = new MessengerMobileAuth($this->messenger);
+				$auth->assertTransport();
+				$actor = $auth->authenticate($authorization);
+				$native = true;
+				$this->wire()->users->setCurrentUser($actor);
+				$auth->rateLimit($method === 'GET' ? 'reads' : 'writes', (string)$actor->id, $method === 'GET' ? 180 : 60);
+			}
+			if($resource === 'session') { $this->allow($method, ['GET']); return $this->sessionResponse($actor, $native); }
 			if(!$actor instanceof User || !$this->messenger->canUse($actor)) throw new WirePermissionException('Messenger access denied.');
-			$this->rateLimit($method !== 'GET');
+			if(!$native) $this->rateLimit($method !== 'GET');
 			$body = $method === 'POST' ? $this->jsonBody() : [];
-			if($method === 'POST') $this->validateCsrf($body);
+			if($method === 'POST' && !$native) $this->validateCsrf($body);
 
 			switch($resource) {
+				case 'sync':
+					$this->allow($method, ['GET']);
+					$result = $this->messenger->syncState($actor, (string)$this->wire()->input->get('revision'));
+					break;
 				case 'inbox':
 					$this->allow($method, ['GET']);
 					$scope = (string)$this->wire()->input->get('scope');
@@ -115,6 +131,9 @@ final class MessengerRestApi extends Wire {
 					return $this->response(404, null, 'Not found.');
 			}
 			return $this->response(200, $result);
+		} catch(MessengerMobileException $error) {
+			if($error->httpStatus === 429) header('Retry-After: 60');
+			return $this->response($error->httpStatus, null, $error->getMessage(), $error->apiCode);
 		} catch(WirePermissionException $error) {
 			return $this->response(403, null, 'Messenger action is not available.');
 		} catch(Wire404Exception $error) {
@@ -127,11 +146,12 @@ final class MessengerRestApi extends Wire {
 			$this->wire()->log->save('messenger', 'REST request failed (' . get_class($error) . ').');
 			return $this->response(500, null, 'Messenger request failed.');
 		}
+		finally { if($native) $this->wire()->users->setCurrentUser($originalActor); }
 	}
 
-	private function sessionResponse(User $actor): string {
-		$result = ['is_login' => (bool)$actor->isLoggedin(), 'user_id' => (int)$actor->id, 'can_use' => $this->messenger->canUse($actor), 'can_moderate' => $this->messenger->canModerate($actor)];
-		if($result['can_use']) { $token = $this->wire()->session->CSRF->getToken('messenger-rest'); $result['csrf'] = ['name'=>$token['name'],'value'=>$token['value'],'header'=>'X-' . $token['name']]; }
+	private function sessionResponse(User $actor, bool $native = false): string {
+		$result = ['is_login' => (bool)$actor->isLoggedin(), 'user_id' => (int)$actor->id, 'can_use' => $this->messenger->canUse($actor), 'can_moderate' => !$native && $this->messenger->canModerate($actor)];
+		if($result['can_use'] && !$native) { $token = $this->wire()->session->CSRF->getToken('messenger-rest'); $result['csrf'] = ['name'=>$token['name'],'value'=>$token['value'],'header'=>'X-' . $token['name']]; }
 		return $this->response(200, $result);
 	}
 
@@ -160,7 +180,7 @@ final class MessengerRestApi extends Wire {
 
 	private function allow(string $method,array $allowed): void { if(in_array($method,$allowed,true))return;header('Allow: ' . implode(', ',$allowed));throw new MessengerRestException('Method not allowed.',405); }
 	private function headers(): void { header('Content-Type: application/json; charset=utf-8');header('Cache-Control: private, no-store, max-age=0');header('Pragma: no-cache');header('X-Content-Type-Options: nosniff');header('X-Frame-Options: DENY');header('X-Robots-Tag: noindex, nofollow, noarchive'); }
-	private function response(int $status,$result=null,string $error=''): string { http_response_code($status);return (string)json_encode($error===''?['ok'=>true,'api_version'=>Messenger::REST_API_VERSION,'result'=>$result]:['ok'=>false,'api_version'=>Messenger::REST_API_VERSION,'error'=>$error],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE); }
+	private function response(int $status,$result=null,string $error='', string $code=''): string { http_response_code($status);return (string)json_encode($error===''?['ok'=>true,'api_version'=>Messenger::REST_API_VERSION,'result'=>$result]:['ok'=>false,'api_version'=>Messenger::REST_API_VERSION,'error'=>$error] + ($code !== '' ? ['code'=>$code] : []),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE); }
 }
 
 final class MessengerRestException extends \RuntimeException {
