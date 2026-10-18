@@ -37,7 +37,11 @@ final class MessengerRestApi extends Wire {
 			switch($resource) {
 				case 'presence':
 					$this->allow($method,['GET','POST']);
-					$result=$method==='GET'?$this->messenger->presence($actor):$this->messenger->setPresence($actor,(string)($body['status']??''),(string)($body['text']??''));break;
+					if($method==='GET')$result=$this->messenger->presence($actor);
+					elseif(array_key_exists('heartbeat',$body)){
+						if($body['heartbeat']!==true||array_key_exists('status',$body)||array_key_exists('text',$body))throw new \InvalidArgumentException('Heartbeat must not change presence preferences.');
+						$result=$this->messenger->heartbeatPresence($actor);
+					}else $result=$this->messenger->setPresence($actor,(string)($body['status']??''),(string)($body['text']??''));break;
 				case 'directory':
 				case 'contacts':
 					$this->allow($method,['GET']);$result=$this->messenger->memberDirectory($actor,(string)$this->wire()->input->get('q'),$this->queryInt('limit',30,30),$resource==='contacts');break;

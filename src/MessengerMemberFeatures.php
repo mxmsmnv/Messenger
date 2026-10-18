@@ -11,6 +11,14 @@ trait MessengerMemberFeatures {
 	public function presence(User $actor): array {
 		$this->assertActor($actor);return $this->memberPresence((int)$actor->id,true);
 	}
+	/** Renew activity without replaying a possibly stale device's status preference. */
+	public function heartbeatPresence(User $actor): array {
+		$this->assertActor($actor);$expires=time()+90;$empty=$this->encryptValue('','Messenger|presence|'.(int)$actor->id);
+		return $this->atomic(function()use($actor,$expires,$empty):array{
+			$sql=$this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='sqlite'?'INSERT INTO messenger_presence (user_id,status,status_text,expires_at) VALUES (?,\'online\',?,?) ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at':'INSERT INTO messenger_presence (user_id,status,status_text,expires_at) VALUES (?,\'online\',?,?) ON DUPLICATE KEY UPDATE expires_at=VALUES(expires_at)';
+			$this->execute($sql,[(int)$actor->id,$empty,$expires]);return $this->presence($actor);
+		});
+	}
 	public function setPresence(User $actor,string $status,string $text=''): array {
 		$this->assertActor($actor);
 		if(!mb_check_encoding($text,'UTF-8')||!in_array($status,['online','away','busy','invisible','offline'],true)||mb_strlen($text)>120||preg_match('/[\x00-\x1F\x7F]/u',$text))throw new \InvalidArgumentException('Invalid presence.');
