@@ -63,6 +63,9 @@ trait MessengerMemberFeatures {
 		$max=$kind==='voice'?4*1024*1024:8*1024*1024;if(strlen($encoded)>4*(int)ceil($max/3))throw new \InvalidArgumentException('Attachment is too large.');
 		$bytes=base64_decode($encoded,true);if($bytes===false||$bytes===''||strlen($bytes)>$max)throw new \InvalidArgumentException('Attachment is empty or too large.');
 		$actual=(new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);if(!is_string($actual))throw new \InvalidArgumentException('Unsupported attachment.');
+		// Apple AAC-in-M4A is reported by libmagic as this alias; retain the
+		// existing declared audio/mp4 contract and validate the actual bytes.
+		if($kind==='voice'&&$actual==='audio/x-m4a')$actual='audio/mp4';
 		// Files are downloaded as opaque bytes; active content is never rendered or exposed by public URL.
 		if($kind==='voice'&&(!in_array($mime,['audio/mp4','audio/mpeg','audio/aac','audio/ogg','audio/wav','audio/x-wav','audio/webm','audio/3gpp'],true)||!in_array($actual,['audio/mp4','video/mp4','audio/mpeg','audio/aac','audio/x-hx-aac-adts','audio/ogg','application/ogg','audio/wav','audio/x-wav','video/webm','audio/webm','audio/3gpp','video/3gpp'],true)))throw new \InvalidArgumentException('Unsupported voice format.');
 		$duration=$input['duration_ms']??null;if($duration!==null&&(!is_int($duration)||$duration<1||$duration>120000))throw new \InvalidArgumentException('Invalid recording duration.');
