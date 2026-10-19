@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.4.5 (ProcessWire module version `145`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.4.6 (ProcessWire module version `146`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -253,7 +253,7 @@ The consent and fallback HTML are self-contained Narzan-branded documents with l
 
 A styled accessible Return to Narzan link remains in the 303 response body for agents that render it; some browsers intercept/follow the Location without displaying that body. App chooser/permission prompts and fallback rendering depend on the browser/OS. Native cancellation and retry must remain available; this does not promise a chooser-free return on every browser. It does not replace arbitrary site SSO, passkeys or two-factor authentication with native password entry.
 
-## Optional message information (1.4.5)
+## Optional message information (1.4.6)
 
 Feature-detect `message_info` in native discovery before calling
 `GET /messenger-api/v1/message-info/?message_id=123`. Browser/session callers use
@@ -283,7 +283,7 @@ profiles, audit bodies or session data, mark a message read, sweep expiry, or wr
 audit records. It uses one message lookup and at most one conversation/reader-scoped
 audit aggregate. Existing web assets, schema, roles, keys and policies are unchanged.
 
-Only exact 143→145 and 144→145 patch upgrades skip schema/permission work; the
-historical exact 143→144 no-op remains. Older, repeated and future lifecycle paths
+Exact 143→146, 144→146 and 145→146 patch upgrades skip schema/permission work;
+historical exact 143→144, 143→145 and 144→145 no-ops remain. Older, repeated and future lifecycle paths
 retain their existing behavior. Version 1.4.3/1.4.4 clients can keep their existing
 sent/read cursor status and show that exact read time is unavailable.

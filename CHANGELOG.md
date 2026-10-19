@@ -2,13 +2,30 @@
 
 All notable changes to Messenger are documented in this file.
 
-## [1.4.5] - 2026-10-19
+## [1.4.6] - 2026-10-19
 
 ### Added
 
 - Optional `message_info` discovery capability and read-only member `message-info` endpoint with stored sent time, authoritative read state, and the earliest retained reader/conversation audit timestamp. Legacy cursors without a matching audit report unknown read time honestly.
 - Enforce active accepted participant, block/restriction, individual/conversation hiding, deletion, expiry and moderation boundaries without decrypting content or triggering expiry writes.
-- Keep exact 143→145 and 144→145 lifecycle upgrades free of schema, permission and encryption changes, retaining the historical 143→144 no-op and every older/future upgrade path. No web assets, roles, session behavior or site policy changes.
+- Keep exact 143→146, 144→146 and 145→146 lifecycle upgrades free of schema, permission and encryption changes, preserving historical additive patch no-ops and all older/repeated/future upgrade guards. Preserve the optional, disabled-by-default WireWall integration introduced in 1.4.5. No web assets, roles, session behavior or site policy changes.
+
+## [1.4.5] - 2026-10-19
+
+### Added
+
+- Add an optional WireWall integration setting that registers only `/messenger-api/` and `/messenger-mobile/` through WireWall's module-owned API registry.
+- Show whether WireWall is installed, supports the integration contract, and currently has the exact Messenger route registration.
+
+### Security
+
+- Keep the integration disabled by default. Messenger authentication, authorization, rate limits, CSRF policy, PKCE and private response headers remain authoritative after a firewall exception is registered.
+- Disabling or uninstalling the integration removes only the Messenger-owned registration and preserves administrator-managed and other module exceptions.
+- Restore the previous Messenger checkbox value if WireWall synchronization fails.
+
+### Lifecycle
+
+- Treat the exact 144→145 upgrade as a no-schema patch; no message, credential, encryption, permission or session data changes.
 
 ## [1.4.4] - 2026-10-19
 

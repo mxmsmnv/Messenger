@@ -108,6 +108,16 @@ Each recipient receives one normal encrypted direct message from the administrat
 
 Message bodies and report comments, evidence, and resolutions use versioned authenticated-encryption envelopes. The key is domain-separated from `$config->messengerEncryptionKey`, or from `$config->tableSalt` as a fallback, and is never stored in Messenger tables. Do not change that secret without a verified backup and an explicit key-rotation migration: existing ciphertext would become unreadable.
 
+### Optional WireWall integration
+
+When the consuming site uses WireWall 1.13.0 or newer, Messenger settings can
+register `/messenger-api/` and `/messenger-mobile/` as an owner-scoped firewall
+exception. This is disabled by default. The option changes only WireWall's
+global traffic boundary: Messenger still enforces its own authentication,
+authorization, rate limits, CSRF policy, PKCE, callback allow-list and private
+response headers. Turning the option off removes only Messenger's registration;
+manual exceptions and registrations owned by other modules are preserved.
+
 Message search decrypts and scans at most the newest 1,000 accessible messages because randomized ciphertext cannot be queried with SQL `LIKE`. Moderators do not gain conversation content from `messenger-moderate`; evidence access requires `messenger-view-content`.
 
 Retention settings describe policy only. Permanent purge, anonymization, export, and key rotation remain explicit high-risk site operations.
