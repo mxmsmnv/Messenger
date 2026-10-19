@@ -4,6 +4,7 @@ require_once __DIR__ . '/src/MessengerBroadcasts.php';
 require_once __DIR__ . '/src/MessengerMobileAuth.php';
 require_once __DIR__ . '/src/MessengerMemberFeatures.php';
 require_once __DIR__ . '/src/MessengerConversationSettings.php';
+require_once __DIR__ . '/src/MessengerWireWallIntegration.php';
 
 /**
  * Private member-to-member messaging with requests, safety controls and moderation.
@@ -12,8 +13,9 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerBroadcasts;
 	use MessengerMemberFeatures;
 	use MessengerConversationSettings;
+	use MessengerWireWallIntegration;
 
-	public const VERSION = 144;
+	public const VERSION = 145;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -37,7 +39,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 144,
+			'version' => 145,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -75,6 +77,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			'mobile_redirect_uris' => '',
 			'mobile_login_path' => '',
 			'mobile_login_return_param' => '',
+			'wirewall_trust_routes' => 0,
 		];
 	}
 
@@ -87,6 +90,8 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$this->addHook('/messenger-api/{version}/{resource}/', $this, 'handleRestRequest');
 		$this->addHook('/messenger-mobile/v1/{resource}/', $this, 'handleMobileRequest');
 		$this->addHook('/.well-known/narzan', $this, 'handleMobileDiscovery');
+		$this->addHookBefore('Modules::saveModuleConfigData', $this, 'beforeSaveWireWallIntegration');
+		$this->addHookAfter('Modules::saveModuleConfigData', $this, 'afterSaveWireWallIntegration');
 	}
 
 	public function handleRestRequest(HookEvent $event): string {
@@ -200,6 +205,28 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$add($mobile, 'InputfieldText', 'mobile_login_path', $this->_('Existing website sign-in path'), $this->_('Optional same-origin path. The consuming site owns login and registration.'), 50);
 		$add($mobile, 'InputfieldText', 'mobile_login_return_param', $this->_('Sign-in return parameter'), $this->_('Exact parameter already supported by the site login, for example return. Leave blank when unavailable.'), 50);
 		$inputfields->add($mobile);
+
+		$firewall = $fieldset('firewall', $this->_('Firewall integration'), 'shield', $this->_('Let WireWall recognize Messenger’s authenticated public endpoints without weakening unrelated firewall policy.'));
+		$status = $this->wireWallIntegrationStatus();
+		/** @var InputfieldMarkup $firewallStatus */
+		$firewallStatus = $this->wire('modules')->get('InputfieldMarkup');
+		$firewallStatus->name = 'messenger_wirewall_status';
+		$firewallStatus->label = $this->_('WireWall status');
+		$firewallStatus->columnWidth = 50;
+		if(!$status['installed']) {
+			$firewallStatus->value = '<p>' . $this->_('WireWall is not installed. Messenger works normally, but no automatic firewall exception can be managed here.') . '</p>';
+		} elseif(!$status['supported']) {
+			$firewallStatus->value = '<p>' . $this->_('Update WireWall to a version that supports module-owned API route integrations.') . '</p>';
+		} elseif($status['registered']) {
+			$firewallStatus->value = '<p><strong>' . $this->_('Registered') . '</strong><br><code>/messenger-api/</code><br><code>/messenger-mobile/</code></p>';
+		} else {
+			$firewallStatus->value = '<p><strong>' . $this->_('Not registered') . '</strong><br>' . $this->_('Enable the option and save to register only the two Messenger route prefixes.') . '</p>';
+		}
+		$firewall->add($firewallStatus);
+		$integration = $add($firewall, 'InputfieldCheckbox', 'wirewall_trust_routes', $this->_('Add Messenger routes to WireWall exceptions'), $this->_('Registers /messenger-api/ and /messenger-mobile/ as a Messenger-owned integration. Disabling it removes only this registration; manual and other module exceptions remain unchanged.'), 50);
+		$integration->notes = $this->_('These endpoints continue to enforce Messenger authentication, authorization, rate limits, CSRF policy, PKCE and private responses.');
+		if(!$status['supported']) $integration->attr('disabled', 'disabled');
+		$inputfields->add($firewall);
 		return $inputfields;
 	}
 
@@ -766,9 +793,9 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// This exact patch changes presentation/API fields only; never rerun schema or permissions.
-		if((int)$fromVersion===143 && (int)$toVersion===144) return;
+		if(((int)$fromVersion===143 && (int)$toVersion===144) || ((int)$fromVersion===144 && (int)$toVersion===145)) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
-	public function uninstall(): void { $this->message($this->_('Messenger data and permissions were retained.')); }
+	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 
 	private function insertMessage(int $conversationId, User $actor, string $body, string $clientId, string $now, ?string $requestBody = null): array {
 		$expiresAt=$this->insertExpiry($conversationId);
