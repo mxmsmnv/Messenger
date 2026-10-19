@@ -1,0 +1,32 @@
+<?php declare(strict_types=1); namespace ProcessWire;
+require __DIR__.'/support/bootstrap.php';
+[$m,$db,$a,$b]=fixture();$m->set('first_contact_mode','open');$r=$m->startConversation($a,$b,'Album fixture','album_fixture_start_01');$id=$r['conversation']['id'];
+// Genuine 1x1 PNG: MIME is detected from bytes, not the client declaration or filename.
+$png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=';
+$input=['filename'=>'one.png','mime_type'=>'image/png','kind'=>'file','data_base64'=>$png];
+$group=str_repeat('A',43);$firstId='album_'.$group.'_0';$secondId='album_'.$group.'_1';
+$first=$m->sendAttachment($id,$a,$input,$firstId);$second=$m->sendAttachment($id,$a,$input,$secondId);
+check($first['attachment']['mime_type']==='image/png'&&$first['media_group_id']===$group&&$second['media_group_id']===$group,'explicit image batch returns shared group');
+check(!isset($first['client_id'],$first['request_hash'])&&!isset($second['client_id'],$second['request_hash']),'send keeps complete retry IDs private');
+$retry=$m->sendAttachment($id,$a,$input,$firstId);check($retry['id']===$first['id']&&$retry['media_group_id']===$group&&!isset($retry['client_id']),'retry preserves message and group identity');
+$items=$m->conversationMessages($id,$b);check($items[1]['media_group_id']===$group&&$items[2]['media_group_id']===$group,'recipient fetch preserves persisted explicit group');
+check(!isset($items[1]['client_id'],$items[1]['request_hash']),'recipient fetch hides complete retry identity');
+$ordinary=$m->sendAttachment($id,$a,$input,'image_ordinary_retry_01');check(!isset($ordinary['media_group_id']),'nearby ordinary image is not inferred into album');
+$text=$m->sendMessage($id,$a,'Unrelated text','album_'.str_repeat('B',43).'_0');check(!isset($text['media_group_id']),'text with album-shaped retry ID has no group');
+$file=$m->sendAttachment($id,$a,['filename'=>'one.png','mime_type'=>'image/png','kind'=>'file','data_base64'=>base64_encode('Opaque non-image bytes')],'album_'.str_repeat('C',43).'_0');check(!isset($file['media_group_id']),'declared image with non-image bytes has no group');
+$derive=new \ReflectionMethod($m,'messageMediaGroup');
+foreach(['album_'.str_repeat('D',42).'_0','album_'.str_repeat('D',44).'_0','album_'.str_repeat('D',43).'_10','album_'.str_repeat('D',43).'_x','album_'.str_repeat('D',43).'_0_suffix','album_'.str_repeat('D',43)."_0\n"] as $invalid)check($derive->invoke($m,$first,$invalid)===null,'nonconforming album identity ignored');
+foreach([array_replace($first,['deleted_at'=>'2026-10-19 00:00:00']),array_replace($first,['attachment'=>null]),array_replace($first,['attachment'=>['kind'=>'voice','mime_type'=>'image/png']]),array_replace($first,['attachment'=>['kind'=>'file','mime_type'=>'image/svg+xml']])] as $ineligible)check($derive->invoke($m,$ineligible,$firstId)===null,'deleted, absent, voice and active image formats never group');
+$m->deleteMessage($first['id'],$a);$items=$m->conversationMessages($id,$b);check($items[1]['deleted_at']!==null&&$items[1]['attachment']===null&&!isset($items[1]['media_group_id']),'deleted message removes group from recipient fetch');
+$retry=$m->sendAttachment($id,$a,$input,$firstId);check($retry['deleted_at']!==null&&!isset($retry['media_group_id']),'retry of deleted image cannot restore group or content');
+$db->prepare('UPDATE messenger_messages SET expires_at=? WHERE id=?')->execute([time()-1,$second['id']]);$items=$m->conversationMessages($id,$b);check($items[2]['deleted_at']!==null&&$items[2]['attachment']===null&&!isset($items[2]['media_group_id']),'expired image drops group on fetch');
+// Genuine system-codec HEIC, generated from a synthetic checkerboard, not camera content.
+$heic=(string)file_get_contents(__DIR__.'/fixtures/synthetic-heic.heic');$detected=(new \finfo(FILEINFO_MIME_TYPE))->buffer($heic);check($detected==='image/heic','genuine system-codec HEIC bytes sniff as image/heic');
+$heicGroup=str_repeat('H',43);$heicId='album_'.$heicGroup.'_0';$heicInput=['filename'=>'checkerboard.heic','mime_type'=>'image/heic','kind'=>'file','data_base64'=>base64_encode($heic)];
+$heicMessage=$m->sendAttachment($id,$a,$heicInput,$heicId);check($heicMessage['attachment']['mime_type']==='image/heic'&&$heicMessage['media_group_id']===$heicGroup,'detected real HEIC receives explicit album group');
+$heicDownload=$m->attachment($b,$heicMessage['attachment']['id']);check($heicDownload['data_base64']===$heicInput['data_base64'],'HEIC private recipient download preserves original bytes');
+$heicRetry=$m->sendAttachment($id,$a,$heicInput,$heicId);check($heicRetry['id']===$heicMessage['id']&&$heicRetry['media_group_id']===$heicGroup,'HEIC retry preserves message/group identity');
+$heifNamed=$m->sendAttachment($id,$a,array_replace($heicInput,['filename'=>'checkerboard.heif','mime_type'=>'image/heif']),'album_'.$heicGroup.'_1');check($heifNamed['attachment']['mime_type']==='image/heic'&&$heifNamed['media_group_id']===$heicGroup,'HEIF extension/declared MIME uses detected HEIC rather than trusting filename');
+$heicThread=array_column($m->conversationMessages($id,$b),null,'id');check($heicThread[$heicMessage['id']]['media_group_id']===$heicGroup&&$heicThread[$heifNamed['id']]['media_group_id']===$heicGroup,'HEIC group is stable in recipient fetch');
+$fake=$m->sendAttachment($id,$a,array_replace($heicInput,['data_base64'=>base64_encode('Non-image bytes named HEIC')]),'album_'.str_repeat('F',43).'_0');check(!isset($fake['media_group_id'])&&$fake['attachment']['mime_type']!=='image/heic','HEIC name/declared MIME cannot group non-image bytes');
+echo 'Image album checks: '.$GLOBALS['checks'].PHP_EOL;

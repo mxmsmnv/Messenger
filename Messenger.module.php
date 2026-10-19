@@ -13,7 +13,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerMemberFeatures;
 	use MessengerConversationSettings;
 
-	public const VERSION = 143;
+	public const VERSION = 144;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -37,7 +37,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 143,
+			'version' => 144,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -397,7 +397,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			if((string)$conversation['request_state'] === 'declined') throw new WirePermissionException('This request was declined.');
 			if($attachment!==null&&(string)$conversation['request_state']!=='accepted')throw new WirePermissionException('Accept the request before sharing files.');
 			$existing = $this->messageByClientId((int)$actor->id, $clientId);
-			if($existing) { $result = $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment)); $db->commit(); return $result; }
+			if($existing) { $result = $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment),$clientId); $db->commit(); return $result; }
 			if((string)$conversation['request_state'] === 'pending' && (int)$conversation['requester_id'] !== (int)$actor->id) throw new WirePermissionException('Accept the message request before replying.');
 			if((string)$conversation['request_state'] === 'pending') {
 				$count = $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND sender_user_id=? AND deleted_at IS NULL', [$conversationId, (int)$actor->id]);
@@ -407,6 +407,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$now = $this->now();
 			$message = $this->insertMessage($conversationId, $actor, $body, $clientId, $now, $this->attachmentRequestBody($body,$attachment));
 			if($attachment!==null)$message['attachment']=$this->storeAttachment((int)$message['id'],$attachment);
+			$mediaGroup=$this->messageMediaGroup($message,$clientId);if($mediaGroup!==null)$message['media_group_id']=$mediaGroup;
 			$this->queueEmailNotification($conversationId, (int)$message['id'], $otherId, $now);
 			$this->audit('message_sent', $conversationId, (int)$message['id'], (int)$actor->id);
 			$db->commit();
@@ -416,7 +417,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			// Only uniqueness races may be replayed, never authorization/policy errors.
 			if($error instanceof \PDOException && in_array((string)$error->getCode(), ['23000','23505'], true)) {
 				$existing = $this->messageByClientId((int)$actor->id, $clientId);
-				if($existing) return $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment));
+				if($existing) return $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment),$clientId);
 			}
 			throw $error;
 		}
@@ -473,7 +474,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$stmt = $this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,reply_to_id,moderation_state,created_at,edited_at,deleted_at,expires_at FROM `' . self::TABLE_MESSAGES . '` WHERE ' . implode(' AND ', $where) . ' ORDER BY id ' . $order . ' LIMIT ' . $limit);
 		$stmt->execute($params); $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 		if(!$afterId) $items = array_reverse($items);
-		foreach($items as &$item) { $item=$this->applyExpiry($item);$item['id'] = (int)$item['id']; $item['conversation_id'] = (int)$item['conversation_id']; $item['sender_user_id'] = (int)$item['sender_user_id']; $item['body'] = $item['deleted_at'] ? '' : $this->decryptMessageRow($item); unset($item['client_id']); $item['attachment']=$item['deleted_at']?null:$this->messageAttachment((int)$item['id']); }
+		foreach($items as &$item) { $item=$this->applyExpiry($item);$item['id'] = (int)$item['id']; $item['conversation_id'] = (int)$item['conversation_id']; $item['sender_user_id'] = (int)$item['sender_user_id']; $item['body'] = $item['deleted_at'] ? '' : $this->decryptMessageRow($item); $item['attachment']=$item['deleted_at']?null:$this->messageAttachment((int)$item['id']); $mediaGroup=$this->messageMediaGroup($item,(string)$item['client_id']);if($mediaGroup!==null)$item['media_group_id']=$mediaGroup; unset($item['client_id']); }
 		return $items;
 	}
 
@@ -763,7 +764,10 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	}
 
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
-	public function upgrade($fromVersion, $toVersion): void { $this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
+	public function upgrade($fromVersion, $toVersion): void {
+		// This exact patch changes presentation/API fields only; never rerun schema or permissions.
+		if((int)$fromVersion===143 && (int)$toVersion===144) return;
+		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->message($this->_('Messenger data and permissions were retained.')); }
 
 	private function insertMessage(int $conversationId, User $actor, string $body, string $clientId, string $now, ?string $requestBody = null): array {
@@ -856,13 +860,14 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		if(!$this->canReceive($recipient) || (int)$actor->id === (int)$recipient->id || $this->isBlockedEitherWay((int)$actor->id, (int)$recipient->id)) throw new WirePermissionException('Messaging is unavailable.');
 	}
 
-	private function replayMessage(array $message, int $conversationId, string $body): array {
+	private function replayMessage(array $message, int $conversationId, string $body,string $clientId): array {
 		$fingerprint = (string)($message['request_hash'] ?? '');
 		// Legacy rows have no immutable fingerprint; never guess after an edit/delete.
 		if($fingerprint === '' && !$message['edited_at'] && !$message['deleted_at']) $fingerprint = $this->contentFingerprint((string)$message['body']);
 		if((int)$message['conversation_id'] !== $conversationId || $fingerprint === '' || !hash_equals($fingerprint, $this->contentFingerprint($body))) throw new MessengerMobileException('idempotency_conflict', 'Client message id conflicts with another operation.', 409);
 		$cutoff=$this->scalar('SELECT hidden_through_message_id FROM messenger_participants WHERE conversation_id=? AND user_id=?',[$conversationId,(int)$message['sender_user_id']]);if((int)$message['id']<=$cutoff){$message['deleted_at']=$message['deleted_at']?:$this->now();$message['body']='';}
 		$message['attachment']=$message['deleted_at']?null:$this->messageAttachment((int)$message['id']);
+		$mediaGroup=$this->messageMediaGroup($message,$clientId);if($mediaGroup!==null)$message['media_group_id']=$mediaGroup;
 		unset($message['request_hash'], $message['client_id']);
 		foreach(['id','conversation_id','sender_user_id'] as $key) $message[$key] = (int)$message[$key];
 		return $message;

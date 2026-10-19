@@ -181,6 +181,11 @@ final class MessengerRestApi extends Wire {
 
 	private function sessionResponse(User $actor, bool $native = false): string {
 		$result = ['is_login' => (bool)$actor->isLoggedin(), 'user_id' => (int)$actor->id, 'can_use' => $this->messenger->canUse($actor), 'can_moderate' => !$native && $this->messenger->canModerate($actor)];
+		// Only the authenticated member may read their own minimal profile.
+		if($result['is_login'] && $result['can_use']) {
+			$result['name'] = (string)$actor->name;
+			$result['title'] = (string)($actor->get('display_name') ?: $actor->get('title') ?: $actor->name);
+		}
 		if($result['can_use'] && !$native) { $token = $this->wire()->session->CSRF->getToken('messenger-rest'); $result['csrf'] = ['name'=>$token['name'],'value'=>$token['value'],'header'=>'X-' . $token['name']]; }
 		return $this->response(200, $result);
 	}

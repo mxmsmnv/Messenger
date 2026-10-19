@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             callback=headers.get('Location','');check(status==303 and callback.startswith(data['redirect_uri']+'?'),'consent automatically redirects to exact registered app callback');check(html.unescape(re.search(r'href="([^"]+)"',text).group(1))==callback,'manual fallback matches redirect exactly');query=urllib.parse.parse_qs(urllib.parse.urlparse(callback).query)
             check(headers.get('Referrer-Policy')=='no-referrer' and 'no-store' in headers.get('Cache-Control',''),'completion is private and has no referrer')
             style=re.search(r'<style>(.*?)</style>',text,re.S).group(1)
-            check('--bg:#303030' in style and '--accent:#d4f35b' in style and 'color-scheme:dark' in style,'Messenger graphite/lime is the default mobile identity style')
+            check('--bg:#26312d' in style and '--accent:#a8c785' in style and 'color-scheme:dark' in style,'Muted Narzan green is the default mobile identity style')
             check('prefers-color-scheme' not in style and all(color not in style for color in ['#f0efeb','#315fd1','#4a7ff8']),'mobile identity has no alternate Niva palette')
             style_hash=base64.b64encode(hashlib.sha256(style.encode()).digest()).decode()
             csp=headers.get('Content-Security-Policy','')
