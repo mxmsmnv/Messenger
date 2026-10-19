@@ -2,6 +2,13 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.3] - 2026-10-18
+
+### Fixed
+
+- Accept the `audio/x-m4a` MIME signature reported by libmagic for genuine Apple AAC-in-M4A voice recordings, normalizing that detected alias to the existing `audio/mp4` voice validation contract. Filename/declared MIME alone never authorize content; encrypted storage, exact retry identity, membership and size/duration bounds remain unchanged.
+- Add a genuine generated AAC/M4A silence fixture and regression checks for MIME sniffing, encrypted send/download, stable retry, invalid content and duration rejection. No client TLS/authentication or existing web behavior changes.
+
 ## [1.4.2] - 2026-10-18
 
 ### Fixed

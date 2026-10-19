@@ -26,6 +26,18 @@ foreach([['filename'=>'../bad'],['data_base64'=>'invalid!'],['data_base64'=>''],
 // A valid tiny WAV voice packet, independent of native codecs.
 $pcm=str_repeat("\0",80);$wav='RIFF'.pack('V',36+strlen($pcm)).'WAVEfmt '.pack('VvvVVvv',16,1,1,8000,16000,2,16).'data'.pack('V',strlen($pcm)).$pcm;
 $voice=$validate->invoke($m,['filename'=>'voice.wav','mime_type'=>'audio/wav','kind'=>'voice','duration_ms'=>1000,'data_base64'=>base64_encode($wav)]);check($voice['kind']==='voice'&&$voice['duration_ms']===1000,'voice MIME and duration contract');
+// Genuine generated AAC-in-M4A: iOS AVAudioRecorder output is sniffed as audio/x-m4a.
+$m4a=(string)file_get_contents(__DIR__.'/fixtures/silence-aac.m4a');
+$sniff=(new \finfo(FILEINFO_MIME_TYPE))->buffer($m4a);
+check(in_array($sniff,['audio/x-m4a','audio/mp4','video/mp4'],true),'real AAC/M4A container sniffed, not filename trusted');
+[$m,$db,$a,$b]=fixture();$m->set('first_contact_mode','open');$r=$m->startConversation($a,$b,'AAC fixture','media_m4a_start_0001');$cid=$r['conversation']['id'];
+$m4aInput=['filename'=>'voice.m4a','mime_type'=>'audio/mp4','kind'=>'voice','duration_ms'=>500,'data_base64'=>base64_encode($m4a)];
+$sent=$m->sendAttachment($cid,$a,$m4aInput,'media_m4a_send_00001');
+check($sent['attachment']['mime_type']==='audio/mp4'&&$sent['attachment']['kind']==='voice'&&$sent['attachment']['size']===strlen($m4a),'sniffed Apple M4A accepted under canonical voice contract');
+check($m->attachment($b,$sent['attachment']['id'])['data_base64']===$m4aInput['data_base64'],'M4A recipient download preserves exact bytes');
+check($m->sendAttachment($cid,$a,$m4aInput,'media_m4a_send_00001')['id']===$sent['id']&&(int)$db->query('SELECT COUNT(*) FROM messenger_attachments')->fetchColumn()===1,'M4A retry is idempotent');
+$encrypted=$db->query('SELECT payload FROM messenger_attachments')->fetchColumn();check(str_starts_with($encrypted,'menc:v1:')&&!str_contains($encrypted,$m4aInput['data_base64']),'M4A remains encrypted at rest');
+foreach([['data_base64'=>base64_encode('not audio despite voice.m4a filename')],['duration_ms'=>120001],['mime_type'=>'text/plain']] as $patch){try{$m->sendAttachment($cid,$a,array_replace($m4aInput,$patch),'media_m4a_invalid01');throw new \RuntimeException('Expected invalid M4A');}catch(\InvalidArgumentException $error){check(true,'M4A alias does not weaken bytes, declared MIME or duration checks');}}
 // Encrypt/authenticate attachment with immutable message identity, and roll back all writes on audit failure.
 [$m,$db,$a,$b]=fixture();$m->set('first_contact_mode','open');$r=$m->startConversation($a,$b,'start','media_atomic_0001');$db->exec("CREATE TRIGGER fail_media_audit BEFORE INSERT ON messenger_audit BEGIN SELECT RAISE(ABORT,'fixture'); END");try{$m->sendAttachment($r['conversation']['id'],$a,$input,'media_atomic_0002');throw new \RuntimeException('Expected failure');}catch(\PDOException $e){check($db->query('SELECT COUNT(*) FROM messenger_messages')->fetchColumn()===1&&$db->query('SELECT COUNT(*) FROM messenger_attachments')->fetchColumn()===0,'attachment and message roll back together');}
 echo 'Member features checks: '.$GLOBALS['checks'].PHP_EOL;
