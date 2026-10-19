@@ -13,7 +13,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerMemberFeatures;
 	use MessengerConversationSettings;
 
-	public const VERSION = 141;
+	public const VERSION = 142;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -37,7 +37,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 141,
+			'version' => 142,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',

@@ -50,6 +50,8 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             callback=headers.get('Location','');check(status==303 and callback.startswith(data['redirect_uri']+'?'),'consent automatically redirects to exact registered app callback');check(html.unescape(re.search(r'href="([^"]+)"',text).group(1))==callback,'manual fallback matches redirect exactly');query=urllib.parse.parse_qs(urllib.parse.urlparse(callback).query)
             check(headers.get('Referrer-Policy')=='no-referrer' and 'no-store' in headers.get('Cache-Control',''),'completion is private and has no referrer')
             style=re.search(r'<style>(.*?)</style>',text,re.S).group(1)
+            check('--bg:#303030' in style and '--accent:#d4f35b' in style and 'color-scheme:dark' in style,'Messenger graphite/lime is the default mobile identity style')
+            check('prefers-color-scheme' not in style and all(color not in style for color in ['#f0efeb','#315fd1','#4a7ff8']),'mobile identity has no alternate Niva palette')
             style_hash=base64.b64encode(hashlib.sha256(style.encode()).digest()).decode()
             csp=headers.get('Content-Security-Policy','')
             check("style-src 'sha256-"+style_hash+"'" in csp and "script-src 'none'" in csp and "default-src 'none'" in csp and "form-action 'self'" in csp and "frame-ancestors 'none'" in csp and "base-uri 'none'" in csp and "unsafe-inline" not in csp,'only exact bundled CSS is allowed by CSP');check("form-action 'self' org.example.narzan:" in csp and 'https:' not in csp and '*' not in csp,'completion CSP has no wildcard or general network form target')
