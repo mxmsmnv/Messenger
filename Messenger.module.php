@@ -15,7 +15,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 145;
+	public const VERSION = 146;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -39,7 +39,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 145,
+			'version' => 146,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -505,6 +505,39 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		return $items;
 	}
 
+	/** Read-only participant metadata; never decrypt content or expire/mutate rows on this path. */
+	public function messageInfo(int $messageId, User $actor): array {
+		$unavailable = static function(): never { throw new WirePermissionException('Message unavailable.'); };
+		// assertActor()/conversation() perform expiry housekeeping: deliberately use the
+		// same eligibility policy directly so this optional GET remains side-effect free.
+		if($messageId < 1 || !$this->canUse($actor)) $unavailable();
+		$stmt=$this->wire('database')->prepare('SELECT m.id,m.conversation_id,m.sender_user_id,m.created_at,c.requester_id,c.recipient_id,p.last_read_message_id,peer.last_read_message_id AS peer_last_read_message_id
+			FROM `' . self::TABLE_MESSAGES . '` m
+			JOIN `' . self::TABLE_CONVERSATIONS . '` c ON c.id=m.conversation_id
+			JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=c.id AND p.user_id=?
+			JOIN `' . self::TABLE_PARTICIPANTS . '` peer ON peer.conversation_id=c.id AND peer.user_id=CASE WHEN c.requester_id=p.user_id THEN c.recipient_id ELSE c.requester_id END
+			WHERE m.id=? AND p.user_id IN (c.requester_id,c.recipient_id) AND m.sender_user_id IN (c.requester_id,c.recipient_id)
+			AND c.state=\'active\' AND c.request_state=\'accepted\' AND m.id>p.hidden_through_message_id
+			AND m.deleted_at IS NULL AND m.moderation_state=\'visible\' AND (m.expires_at IS NULL OR m.expires_at>?)
+			AND NOT EXISTS (SELECT 1 FROM `' . self::TABLE_MESSAGE_HIDES . '` h WHERE h.message_id=m.id AND h.user_id=p.user_id) LIMIT 1');
+		$stmt->execute([(int)$actor->id,$messageId,time()]);
+		$message=$stmt->fetch(\PDO::FETCH_ASSOC);
+		if(!$message) $unavailable();
+		$otherId=(int)$message['requester_id']===(int)$actor->id?(int)$message['recipient_id']:(int)$message['requester_id'];
+		if($this->isBlockedEitherWay((int)$actor->id,$otherId) || !$this->canReceive($this->wire('users')->get($otherId))) $unavailable();
+		$own=(int)$message['sender_user_id']===(int)$actor->id;
+		$reader=$own?$otherId:(int)$actor->id;
+		$read=(int)$message[$own?'peer_last_read_message_id':'last_read_message_id'] >= $messageId;
+		$readAt=null;
+		if($read) {
+			$audit=$this->wire('database')->prepare('SELECT MIN(created_at) FROM `' . self::TABLE_AUDIT . '` WHERE conversation_id=? AND actor_user_id=? AND action=\'conversation_read\' AND message_id>=?');
+			$audit->execute([(int)$message['conversation_id'],$reader,$messageId]);
+			$value=$audit->fetchColumn();
+			if(is_string($value) && $value!=='') $readAt=$value;
+		}
+		return ['message_id'=>(int)$message['id'],'sent_at'=>(string)$message['created_at'],'is_own'=>$own,'is_read'=>$read,'read_at'=>$readAt];
+	}
+
 	/** Conservative cache invalidation, including edits older than the message-ID cursor. */
 	public function syncState(User $actor, string $revision = ''): array {
 		$this->assertActor($actor);
@@ -792,8 +825,8 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
-		// This exact patch changes presentation/API fields only; never rerun schema or permissions.
-		if(((int)$fromVersion===143 && (int)$toVersion===144) || ((int)$fromVersion===144 && (int)$toVersion===145)) return;
+		// These exact additive patches never rerun schema, permissions, keys or migrations.
+		if(((int)$fromVersion===143 && in_array((int)$toVersion,[144,145,146],true)) || ((int)$fromVersion===144 && in_array((int)$toVersion,[145,146],true)) || ((int)$fromVersion===145 && (int)$toVersion===146)) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 

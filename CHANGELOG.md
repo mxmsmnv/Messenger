@@ -2,6 +2,14 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.6] - 2026-10-19
+
+### Added
+
+- Optional `message_info` discovery capability and read-only member `message-info` endpoint with stored sent time, authoritative read state, and the earliest retained reader/conversation audit timestamp. Legacy cursors without a matching audit report unknown read time honestly.
+- Enforce active accepted participant, block/restriction, individual/conversation hiding, deletion, expiry and moderation boundaries without decrypting content or triggering expiry writes.
+- Keep exact 143→146, 144→146 and 145→146 lifecycle upgrades free of schema, permission and encryption changes, preserving historical additive patch no-ops and all older/repeated/future upgrade guards. Preserve the optional, disabled-by-default WireWall integration introduced in 1.4.5. No web assets, roles, session behavior or site policy changes.
+
 ## [1.4.5] - 2026-10-19
 
 ### Added

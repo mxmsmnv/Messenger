@@ -12,12 +12,12 @@ $adminJs = (string)file_get_contents($root . '/assets/messenger-admin.js');
 $broadcasts = (string)file_get_contents($root . '/src/MessengerBroadcasts.php');
 $cli = (string)file_get_contents($root . '/bin/messenger');
 
-if(!str_contains($module, 'public const VERSION = 145;') || !str_contains($module, "'version' => 145") || !str_contains($admin, "'version' => 145") || !str_contains($admin, "'Messenger>=1.4.5'")) throw new RuntimeException('Release version must be 1.4.5 / 145 everywhere.');
+if(!str_contains($module, 'public const VERSION = 146;') || !str_contains($module, "'version' => 146") || !str_contains($admin, "'version' => 146") || !str_contains($admin, "'Messenger>=1.4.6'")) throw new RuntimeException('Release version must be 1.4.6 / 146 everywhere.');
 if(!str_contains($readme, '![Messenger](assets/Messenger.png)') || !is_file($root . '/assets/Messenger.png')) throw new RuntimeException('README doodle contract missing.');
 if(!is_file($root . '/LICENSE') || !str_contains((string)file_get_contents($root . '/LICENSE'), 'MIT License')) throw new RuntimeException('MIT license contract missing.');
 if(!is_file($root . '/.github/FUNDING.yml') || !str_contains((string)file_get_contents($root . '/.github/FUNDING.yml'), 'smnv.org/sponsor')) throw new RuntimeException('Sponsorship metadata contract missing.');
-if(!str_contains($changelog, '## [1.4.5]') || !str_contains($changelog, '## [1.4.4]') || !str_contains($changelog, '## [1.2.0]') || !str_contains($changelog, '## [1.1.0]') || !str_contains($changelog, '## [1.0.2]') || !str_contains($changelog, '## [1.0.1]') || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog release history is incomplete.');
-foreach(['Messenger 1.4.5', 'module version `145`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
+if(!str_contains($changelog, '## [1.4.6]') || !str_contains($changelog, '## [1.4.5]') || !str_contains($changelog, '## [1.4.4]') || !str_contains($changelog, '## [1.2.0]') || !str_contains($changelog, '## [1.1.0]') || !str_contains($changelog, '## [1.0.2]') || !str_contains($changelog, '## [1.0.1]') || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog release history is incomplete.');
+foreach(['Messenger 1.4.6', 'module version `146`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
 if(!str_contains($module, "exec('BEGIN IMMEDIATE')") || !str_contains($module, "ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE'") || str_contains($module, "' FOR UPDATE')->fetchAll")) throw new RuntimeException('Portable encryption migration locking is missing.');
 
 $requiredTables = [
@@ -30,7 +30,7 @@ foreach($requiredTables as $table) if(!str_contains($module, "'{$table}'")) thro
 $permissions = ['messenger-moderate','messenger-view-content','messenger-admin','messenger-export','messenger-delete'];
 foreach($permissions as $permission) if(!str_contains($module, "'{$permission}'")) throw new RuntimeException("Missing permission: {$permission}");
 
-$methods = ['canReceive','messagingDecision','startConversation','sendMessage','conversationsForUser','pendingRequestCount','conversationMessages','editMessage','deleteMessage','hideMessage','searchMessages','searchRecipients','acceptRequest','declineRequest','markRead','blockUser','unblockUser','reportMessage','reportStatusCounts','restrictUser','clearRestriction','restrictionStatus','activeRestrictions','runNotificationOutbox','renderApp','encryptionStatus','migrateEncryptionAtRest','frontendFrameworks','frontendUi','frontendAttributes'];
+$methods = ['canReceive','messagingDecision','startConversation','sendMessage','conversationsForUser','pendingRequestCount','conversationMessages','messageInfo','editMessage','deleteMessage','hideMessage','searchMessages','searchRecipients','acceptRequest','declineRequest','markRead','blockUser','unblockUser','reportMessage','reportStatusCounts','restrictUser','clearRestriction','restrictionStatus','activeRestrictions','runNotificationOutbox','renderApp','encryptionStatus','migrateEncryptionAtRest','frontendFrameworks','frontendUi','frontendAttributes'];
 foreach($methods as $method) if(!preg_match('/function\s+(?:___)?' . preg_quote($method,'/') . '\s*\(/',$module)) throw new RuntimeException("Missing method: {$method}");
 $broadcastMethods = ['previewBroadcast','createBroadcast','broadcasts','broadcast','processBroadcast','runBroadcastQueue','cancelBroadcast'];
 foreach($broadcastMethods as $method) if(!preg_match('/function\s+' . preg_quote($method,'/') . '\s*\(/',$broadcasts)) throw new RuntimeException("Missing broadcast method: {$method}");
@@ -70,3 +70,5 @@ foreach(['width:100%', 'max-width:100%', 'min-width:0'] as $responsiveContract) 
 if(str_contains($module,'DROP TABLE')) throw new RuntimeException('Uninstall must not drop private data.');
 
 fwrite(STDOUT,"Messenger contracts: OK\n");
+
+if(!str_contains($rest,"case 'message-info':") || !str_contains((string)file_get_contents($root.'/src/MessengerMobileAuth.php'),"'message_info'")) throw new RuntimeException('Optional message-info transport/discovery contract missing.');
