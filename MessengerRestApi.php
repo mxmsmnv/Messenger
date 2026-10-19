@@ -79,6 +79,11 @@ final class MessengerRestApi extends Wire {
 					$result = $this->messenger->conversation($this->identifier(), $actor);
 					if(!$result) throw new Wire404Exception('Conversation unavailable.');
 					break;
+				case 'message-info':
+					$this->allow($method,['GET']);
+					$id=$this->wire()->input->get('message_id');
+					if(!is_string($id)||!preg_match('/^[1-9][0-9]{0,18}$/D',$id)||(string)(int)$id!==$id) throw new \InvalidArgumentException('A positive message_id is required.');
+					$result=$this->messenger->messageInfo((int)$id,$actor);break;
 				case 'messages':
 					$this->allow($method, ['GET']);
 					$id = $this->conversationId($actor, $this->identifier());

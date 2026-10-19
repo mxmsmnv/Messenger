@@ -75,6 +75,18 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/session/',browser=True,token='invalid');check(status==400 and json.loads(text)['code']=='mixed_credentials','no cookie fallback')
             native_payload={'recipient_id':33,'body':'synthetic native message','client_id':'http_native_fixture_0001'}
             status,text,_=request('/messenger-api/v1/start/',native_payload,token=tokens['access_token']);check(status==200 and json.loads(text)['ok'],'valid native POST without CSRF')
+            # Real HTTP dispatch keeps metadata GET private, query-strict and unavailable for pending requests.
+            started=json.loads(text)['result'];message_id=started['message']['id']
+            status,text,meta_headers=request('/messenger-api/v1/message-info/?message_id='+str(message_id),token=tokens['access_token'])
+            check(status==403 and not json.loads(text)['ok'],'pending native message has no information disclosure')
+            status,text,_=request('/messenger-api/v1/message-info/?message_id=9999999',token=tokens['access_token'])
+            check(status==403 and not json.loads(text)['ok'],'absent metadata uses same unavailable HTTP status')
+            for invalid in ['0','-1','01','1x','1.2','9223372036854775808','%5B1%5D']:
+                status,text,_=request('/messenger-api/v1/message-info/?message_id='+invalid,token=tokens['access_token'])
+                check(status==400 and not json.loads(text)['ok'],'metadata HTTP ID parsing is strict')
+            status,text,_=request('/messenger-api/v1/message-info/?message_id='+str(message_id),{},token=tokens['access_token'])
+            check(status==405 and not json.loads(text)['ok'],'metadata HTTP POST is not a write path')
+            check('no-store' in meta_headers.get('Cache-Control','') and not any(key.lower()=='access-control-allow-origin' for key in meta_headers),'metadata HTTP response remains private without CORS')
             status,text,_=request('/messenger-mobile/v1/refresh/',{'refresh_token':tokens['refresh_token']});new=json.loads(text);check(status==200 and new['access_token']!=tokens['access_token'],'HTTP rotation')
             status,text,_=request('/messenger-api/v1/session/',token=tokens['access_token']);check(status==401,'old access expired after rotation')
             status,text,_=request('/messenger-mobile/v1/revoke/',{'refresh_token':new['refresh_token']});check(status==200,'HTTP device revoke')

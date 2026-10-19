@@ -19,7 +19,7 @@ If this module saves you time, you can [sponsor the work](https://smnv.org/spons
 - Request counts, accept/decline, pending-send limits, unread watermarks, archive, mute, and notification preferences.
 - Edit, delete-for-everyone, hide-for-self, block/unblock, and report actions with enforced ownership and time windows.
 - Explicit private contacts, per-chat mute, personal chat deletion, and server-enforced opt-in message expiry.
-- Member directories, expiring presence with invisible mode, and authoritative peer read cursors.
+- Member directories, expiring presence with invisible mode, authoritative read cursors and optional stored sent/read audit times.
 - Private encrypted file and voice attachments in accepted conversations (native API).
 - Cursor pagination, idempotent message creation, recipient search, and bounded encrypted-message search.
 - Per-member rate limits, temporary restrictions, immutable report evidence, and audited moderation decisions.

@@ -29,6 +29,24 @@ check($native['result']['can_moderate']===false&&!isset($native['result']['csrf'
 $_SERVER['HTTP_AUTHORIZATION']='Bearer invalid';$users->setCurrentUser($a);$rejected=json_decode($rest->handle('v1','session'),true);check(!$rejected['ok']&&http_response_code()===401,'bad bearer never falls back to logged-in web user');
 $_SERVER['HTTP_AUTHORIZATION']='Bearer '.$tokens['access_token'];$_SERVER['HTTP_COOKIE']='fixture=1';$mixed=json_decode($rest->handle('v1','session'),true);check(!$mixed['ok']&&$mixed['code']==='mixed_credentials','mixed browser and bearer rejected');unset($_SERVER['HTTP_COOKIE']);
 $_SERVER['REQUEST_METHOD']='GET';$before=$m->syncState($a);$r=$m->startConversation($a,$b,'first','sync_fixture_0001');$initial=$m->syncState($b);check(!$m->syncState($b,$initial['revision'])['changed'],'stable sync revision');$m->editMessage($r['message']['id'],$a,'edit');check($m->syncState($b,$initial['revision'])['reset_required'],'edit invalidates old cache');$edited=$m->syncState($b);$m->deleteMessage($r['message']['id'],$a);check($m->syncState($b,$edited['revision'])['changed'],'delete invalidates old cache');
+// Optional metadata goes through the real member dispatch with strict query/method checks.
+$m->acceptRequest((int)$r['conversation']['id'],$b);
+$metadataMessage=$m->sendMessage((int)$r['conversation']['id'],$a,'synthetic transport metadata','transport_info_0001');
+$input->query=['message_id'=>(string)$metadataMessage['id']];
+$_SERVER=['HTTPS'=>'on','REQUEST_METHOD'=>'GET','HTTP_HOST'=>'example.test','HTTP_AUTHORIZATION'=>'Bearer '.$tokens['access_token']];
+$info=json_decode($rest->handle('v1','message-info'),true);
+check(http_response_code()===200&&$info['ok']&&$info['result']['message_id']===$metadataMessage['id'],'native metadata GET reaches authorized message');
+check($info['result']['is_own']&&!$info['result']['is_read']&&$info['result']['read_at']===null,'native metadata status is typed and no timestamp is invented');
+check(!isset($info['result']['body'],$info['result']['sender_user_id'],$info['result']['actor_user_id'],$info['result']['csrf']),'metadata response omits content/profile/authority fields');
+foreach([null,'0','-1','01','1x','1.2','9223372036854775808',['1']] as $invalid) {
+    $input->query=['message_id'=>$invalid];$bad=json_decode($rest->handle('v1','message-info'),true);
+    check(http_response_code()===400&&!$bad['ok'],'metadata ID must be one positive bounded decimal string');
+}
+$input->query=['message_id'=>(string)$metadataMessage['id']];$_SERVER['REQUEST_METHOD']='DELETE';
+$bad=json_decode($rest->handle('v1','message-info'),true);check(http_response_code()===405&&!$bad['ok'],'metadata endpoint is GET only');
+$_SERVER=['HTTPS'=>'on','REQUEST_METHOD'=>'GET','HTTP_HOST'=>'example.test'];$users->setCurrentUser($a);
+$webInfo=json_decode($rest->handle('v1','message-info'),true);check(http_response_code()===200&&$webInfo['result']===$info['result'],'existing web member session gets identical authorized metadata');
+$input->query=[];
 // Consent GET must never create codes; POST needs browser session, explicit consent and matching CSRF.
 $http=new MessengerMobileHttp($m);$_SERVER=['HTTPS'=>'on','REQUEST_METHOD'=>'GET','HTTP_HOST'=>'example.test'];$input->query=$data;$users->setCurrentUser($a);$count=(int)$db->query('select count(*) from messenger_mobile_codes')->fetchColumn();$form=$http->handle('authorize');check(str_contains($form,'Allow this device'),'explicit consent shown');check((int)$db->query('select count(*) from messenger_mobile_codes')->fetchColumn()===$count,'GET never grants access');
 $_SERVER['REQUEST_METHOD']='POST';$input->form=$data+['approve'=>'yes'];$denial=json_decode($http->handle('authorize'),true);check(http_response_code()===403&&$denial['error']==='access_denied','consent without CSRF denied');$input->form['fixture_csrf']='fixture_csrf_value';$approved=$http->handle('authorize');check(http_response_code()===303&&str_contains($approved,'Return to Narzan'),'valid consent redirects with accessible fallback');check(!str_contains($approved,'Authorization approved'),'completion avoids raw technical success screen');

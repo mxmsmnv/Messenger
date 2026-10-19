@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.4.4 (ProcessWire module version `144`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.4.5 (ProcessWire module version `145`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -252,3 +252,38 @@ After browser sign-in and a valid explicit CSRF-protected approval POST, the mob
 The consent and fallback HTML are self-contained Narzan-branded documents with light/dark styles and no external fonts, images, scripts or network requests. CSP allows only the exact embedded CSS hash. The originating consent document keeps `form-action 'self'` plus the already validated callback's private scheme (or exact HTTPS origin), because Chromium also checks redirect targets after form submission. The server's exact callback allow-list remains authoritative. Other mobile identity documents keep self-only form submission.
 
 A styled accessible Return to Narzan link remains in the 303 response body for agents that render it; some browsers intercept/follow the Location without displaying that body. App chooser/permission prompts and fallback rendering depend on the browser/OS. Native cancellation and retry must remain available; this does not promise a chooser-free return on every browser. It does not replace arbitrary site SSO, passkeys or two-factor authentication with native password entry.
+
+## Optional message information (1.4.5)
+
+Feature-detect `message_info` in native discovery before calling
+`GET /messenger-api/v1/message-info/?message_id=123`. Browser/session callers use
+the same existing same-origin member transport. The public domain equivalent is
+`$messenger->messageInfo($messageId, $actor)`. The response is:
+
+```json
+{"message_id":123,"sent_at":"2026-10-19 03:00:00","is_own":true,"is_read":true,"read_at":"2026-10-19 03:04:05"}
+```
+
+`sent_at` is the stored message creation timestamp. `is_read` uses the current
+authoritative read cursor: the other participant for an outgoing message, the
+current member for an incoming message. If read, `read_at` is the earliest existing
+`conversation_read` audit whose cursor covers this message, scoped to that reader
+and conversation. A retained cursor with no surviving matching audit returns
+`is_read=true, read_at=null`; clients must display an unavailable time rather than
+invent one. Times use the existing server `created_at` datetime format and server
+timezone, with one-second precision; they are server observations, not proof that a
+human viewed pixels. No client clock, delivery time or presence timestamp is used.
+
+Only current, eligible members of an active accepted unblocked conversation can
+query their visible messages, including messages older than the latest page.
+Deleted, expired, moderated, individually hidden and conversation-hidden messages
+receive the same unavailable denial as unrelated or absent messages. Restricted
+peers and actors are denied. This metadata read does not decrypt content, return
+profiles, audit bodies or session data, mark a message read, sweep expiry, or write
+audit records. It uses one message lookup and at most one conversation/reader-scoped
+audit aggregate. Existing web assets, schema, roles, keys and policies are unchanged.
+
+Only exact 143→145 and 144→145 patch upgrades skip schema/permission work; the
+historical exact 143→144 no-op remains. Older, repeated and future lifecycle paths
+retain their existing behavior. Version 1.4.3/1.4.4 clients can keep their existing
+sent/read cursor status and show that exact read time is unavailable.
