@@ -2,6 +2,13 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.2] - 2026-10-18
+
+### Fixed
+
+- Use the supplied Messenger reference style consistently on mobile consent, app-return fallback and device pages: graphite surfaces, lime actions, compact spacing and 12/16px corners, independent of the browser color preference.
+- Preserve exact CSS-hash CSP, CSRF, PKCE and automatic HTTP 303 callback behavior. This patch changes mobile identity presentation only; the existing web messenger assets and API behavior are unchanged.
+
 ## [1.4.1] - 2026-10-18
 
 ### Fixed
