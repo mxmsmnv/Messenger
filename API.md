@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.4.3 (ProcessWire module version `143`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.4.4 (ProcessWire module version `144`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -138,6 +138,13 @@ Because randomized ciphertext cannot support SQL substring matching, `searchMess
 
 The private, same-origin route is `/messenger-api/v1/{resource}/` and uses the current ProcessWire session. First call `GET session`; every POST must supply its CSRF token in JSON or the declared request header.
 
+`GET session` retains `is_login`, `user_id`, `can_use`, and `can_moderate`.
+From 1.4.4, logged-in members with `can_use=true` also receive their own `name`
+(site login) and `title` (display name, falling back to title/login). These fields
+are omitted for guests and restricted users. They never accept a target user ID
+and expose no email or credentials. Browser CSRF and native member-only semantics
+are unchanged; older clients may ignore these additive fields.
+
 GET resources:
 
 - `session`
@@ -206,6 +213,16 @@ All routes below use the existing `/messenger-api/v1/{resource}/` transport and 
 - Conversation objects add integer `other_last_read_message_id`; blocked/restricted peers expose zero. This is a read watermark, not a device-delivery receipt. A successful send is server acknowledgement; a peer read cursor at or above the message ID is read.
 - `POST send-attachment {id,client_id,body?,filename,mime_type,kind,data_base64,duration_ms?}` atomically creates a message plus encrypted attachment. Existing accepted conversations only; no files in message requests. `kind` is `file` or `voice`; maximum decoded sizes are 8 MiB and 4 MiB respectively. Empty files are rejected, filenames are bounded to 180 characters and cannot contain paths/control characters. Voice requires a declared and detected supported audio/container MIME; duration is optional 1–120000 milliseconds (client supplied, not independently measured). Generic files use the detected MIME and are treated as opaque bytes. The same client ID binds the entire canonical payload, including bytes, name, kind and duration; conflicts return 409. Replays produce one message and one attachment.
 - Message objects optionally add `attachment:{id,filename,mime_type,size,kind,duration_ms}`. `GET attachment?id=123` returns this object plus `data_base64`, only to an eligible unblocked participant in the accepted active conversation while the message remains visible and undeleted. No permanent/public download URL exists. Clients must write files to private storage and share through explicit platform mechanisms; do not render HTML/SVG as application content or attach bearer tokens to external URLs.
+
+From 1.4.4, live file attachments with a detected JPEG/PNG/WebP/GIF/HEIC MIME may expose
+optional `media_group_id`. It is the 43-character base64url token from the exact
+client ID convention `album_<43 base64url characters>_<single index 0–9>`.
+It is presentation metadata only; the complete client ID stays private. Partition
+groups by conversation, sender and this token, retain message order and each
+message's individual read/expiry/download checks. Ordinary files, voices, deleted
+messages and nonconforming IDs omit the field. Polling and idempotent retries
+return the same group token. Unrelated images must never be grouped by time or
+name; the protocol does not make a batch atomic or change per-file size limits.
 
 The JSON request body limit is 12 MiB only for `send-attachment` (64 KiB elsewhere). Configure the consuming HTTP server/PHP body limits to allow that request size. Encrypted metadata is stored separately, so ordinary thread polling never selects or decrypts attachment bytes. Downloads are JSON base64; clients should bound responses to 12 MiB. Transfer is memory bounded by the stated limit, not streaming/resumable. These limits are per attachment, not a total user or installation storage quota. Before activation, the site owner must provision storage capacity and choose retention/deletion policy. The 120-second duration field validates client metadata; server-side codec duration parsing is not implemented, so this is not a server-enforced media duration guarantee. Audio transcription, virus scanning, push, delivery-to-device receipts and media retention/purge jobs are not implemented. Deleted/hidden media is denied at download, and encrypted storage is retained consistently with existing module uninstall behavior. Existing web clients display the caption/filename fallback; their attachment controls are unchanged.
 

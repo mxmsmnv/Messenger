@@ -5,7 +5,9 @@ while IFS= read -r file; do php -l "$file" >/dev/null; done < <(find . -path './
 node --check assets/messenger.js
 node --check assets/messenger-admin.js
 php tests/contracts.php
+php tests/upgrade-patch.php
 php tests/mobile-domain.php
+php tests/image-albums.php
 php tests/member-features.php
 php tests/conversation-settings.php
 php tests/mobile-auth.php

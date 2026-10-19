@@ -71,6 +71,12 @@ trait MessengerMemberFeatures {
 		$duration=$input['duration_ms']??null;if($duration!==null&&(!is_int($duration)||$duration<1||$duration>120000))throw new \InvalidArgumentException('Invalid recording duration.');
 		return ['filename'=>$filename,'mime_type'=>$kind==='voice'?$mime:$actual,'size'=>strlen($bytes),'kind'=>$kind,'duration_ms'=>$kind==='voice'?$duration:null,'data_base64'=>base64_encode($bytes)];
 	}
+	/** Optional presentation identity; never an authorization or attachment lookup key. */
+	private function messageMediaGroup(array $message,string $clientId): ?string {
+		$attachment=$message['attachment']??null;
+		if(!empty($message['deleted_at'])||!is_array($attachment)||($attachment['kind']??'')!=='file'||!in_array($attachment['mime_type']??'',['image/jpeg','image/png','image/webp','image/gif','image/heic'],true))return null;
+		return preg_match('/^album_([A-Za-z0-9_-]{43})_[0-9]$/D',$clientId,$match)===1?$match[1]:null;
+	}
 	private function attachmentRequestBody(string $body,?array $attachment): string {return $attachment===null?$body:$body."\0Messenger|attachment|v1|".json_encode($attachment,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);}
 	private function storeAttachment(int $messageId,array $attachment): array {
 		$payload=json_encode($attachment,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);

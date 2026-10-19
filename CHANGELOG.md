@@ -2,6 +2,16 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.4] - 2026-10-19
+
+### Added
+
+- Return the authenticated, eligible member's own login (`name`) and display label (`title`) as additive session fields for native account settings. Anonymous/restricted sessions omit these fields; no email, credentials, or other member's profile is exposed.
+- Add optional `media_group_id` on live raster image messages (including genuine detected Apple HEIC), derived from an exact client retry-ID convention. Individual messages, private attachment checks, retries, storage schema and existing clients remain compatible. No grouping by timestamps or file names.
+- Match the existing mobile consent/return documents to Narzan's muted green palette and compact corners while preserving their strict CSP and automatic callback.
+- Skip schema/permission initialization for the exact 143→144 patch lifecycle; older and future upgrade paths keep their existing behavior.
+- Preserve existing session IDs, browser CSRF, native member-only authority, error handling, and all web assets. No schema, encryption, route, retention, or policy change is required.
+
 ## [1.4.3] - 2026-10-18
 
 ### Fixed
