@@ -47,6 +47,16 @@ $bad=json_decode($rest->handle('v1','message-info'),true);check(http_response_co
 $_SERVER=['HTTPS'=>'on','REQUEST_METHOD'=>'GET','HTTP_HOST'=>'example.test'];$users->setCurrentUser($a);
 $webInfo=json_decode($rest->handle('v1','message-info'),true);check(http_response_code()===200&&$webInfo['result']===$info['result'],'existing web member session gets identical authorized metadata');
 $input->query=[];
+// Additive member-policy resources preserve web and bearer authorization parity.
+$_SERVER=['HTTPS'=>'on','REQUEST_METHOD'=>'GET','HTTP_HOST'=>'example.test','HTTP_AUTHORIZATION'=>'Bearer '.$tokens['access_token']];
+$input->query=[];$nativePolicy=json_decode($rest->handle('v1','client-policy'),true);
+check(http_response_code()===200&&$nativePolicy['result']['max_message_length']===5000,'native member policy');
+$input->query=['user_id'=>(string)$b->id];$context=json_decode($rest->handle('v1','recipient-context'),true);
+check(http_response_code()===200&&$context['result']['conversation']['id']===$metadataMessage['conversation_id'],'native context finds exact existing pair');
+unset($_SERVER['HTTP_AUTHORIZATION']);$webContext=json_decode($rest->handle('v1','recipient-context'),true);
+check($context['result']===$webContext['result'],'web and native recipient context identical');
+foreach([null,'0','01','1x',['22']] as $badId){$input->query=['user_id'=>$badId];$bad=json_decode($rest->handle('v1','recipient-context'),true);check(http_response_code()===400&&!$bad['ok'],'strict context identifier');}
+$input->query=[];
 // Consent GET must never create codes; POST needs browser session, explicit consent and matching CSRF.
 $http=new MessengerMobileHttp($m);$_SERVER=['HTTPS'=>'on','REQUEST_METHOD'=>'GET','HTTP_HOST'=>'example.test'];$input->query=$data;$users->setCurrentUser($a);$count=(int)$db->query('select count(*) from messenger_mobile_codes')->fetchColumn();$form=$http->handle('authorize');check(str_contains($form,'Allow this device'),'explicit consent shown');check((int)$db->query('select count(*) from messenger_mobile_codes')->fetchColumn()===$count,'GET never grants access');
 $_SERVER['REQUEST_METHOD']='POST';$input->form=$data+['approve'=>'yes'];$denial=json_decode($http->handle('authorize'),true);check(http_response_code()===403&&$denial['error']==='access_denied','consent without CSRF denied');$input->form['fixture_csrf']='fixture_csrf_value';$approved=$http->handle('authorize');check(http_response_code()===303&&str_contains($approved,'Return to Narzan'),'valid consent redirects with accessible fallback');check(!str_contains($approved,'Authorization approved'),'completion avoids raw technical success screen');

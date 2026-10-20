@@ -129,3 +129,20 @@ Fresh install and reinstall remain release-candidate checks because they require
 - Browser fixtures must be recorded and removed or intentionally retained.
 - No broadcast test may target an unscoped real-member audience.
 - Restore any changed Messenger configuration after browser testing.
+
+## 1.4.7 policy and web behavior
+
+Run `npm ci --prefix tests/web-dom --ignore-scripts --no-audit --no-fund`, then
+`node tests/web-behavior.cjs` for the actual browser script in an isolated DOM.
+These eight controlled-transport tests are not a real browser E2E run. They cover
+late responses across chats/Back, live request/limit changes with retained drafts,
+server edit/delete eligibility and escaping, existing-pair resolution and cancelled
+lookup, double submit, and immutable manual retry after an ambiguous response.
+`node tests/web-dates.cjs` verifies timezone formatting from the actual formatter.
+
+On the marked narzan_fresh ProcessWire/MySQL/TLS fixture only, run:
+`php tests/client-policy-integration.php --root=/absolute/fixture/site`.
+It changes only that disposable module configuration, restores it in finally,
+and checks browser CSRF/native bearer parity for first-contact modes, pending
+allowances, length/window/rate limits and mobile disable/enable isolation.
+Never run this helper on a consuming production website.

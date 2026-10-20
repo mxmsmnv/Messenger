@@ -11,17 +11,20 @@ Mobile access is **off by default**. No real site was upgraded or enabled by the
 source change. Before activation on a named development site:
 
 1. Back up the database and verify the existing encryption key is unchanged.
-2. Upgrade the paired Messenger/ProcessMessenger modules to 121; this adds the
+2. Upgrade the paired Messenger/ProcessMessenger modules to the reviewed current release. Mobile access originally added the
    `request_hash` column and four empty `messenger_mobile_*` tables. Existing
    message ciphertext/AAD are not rewritten. Permissions are not granted to roles.
-3. Set `mobile_origin` to the operator-verified exact HTTPS origin, with optional
-   port and no path. ProcessWire must correctly recognize HTTPS behind any trusted
+3. In1.4.7, leave the advanced `mobile_origin` override empty to use the first
+   domain explicitly configured in ProcessWire `httpHosts`. Alternatively, set an
+   operator-verified exact HTTPS origin, with optional port and no path. Never use
+   a runtime Host/X-Forwarded-Host header as configuration. ProcessWire must correctly recognize HTTPS behind any trusted
    proxy. Native routes additionally require the web server HTTPS environment value
    to be on or 1. A TLS reverse proxy must set this through trusted server/FastCGI
    configuration and strip client forwarded headers; X-Forwarded-Proto alone is
    rejected even when ProcessWire infers config->https from it.
-4. Set `mobile_redirect_uris` to exact registered Narzan callbacks, one per line.
-   There is deliberately no invented production callback or bundle identifier.
+4. In1.4.7, leave `mobile_redirect_uris` empty for the official registered Narzan
+   identity `org.smnv.narzan.dev://auth/callback`. Advanced custom lists replace
+   that default and accept one exact registered callback per line.
    Only HTTPS or reverse-DNS private app schemes (for example org.example.app)
    are accepted. No wildcard, HTTP, fragment, user-info, script or data callbacks.
 5. If needed, configure the site's **existing** relative `mobile_login_path` and

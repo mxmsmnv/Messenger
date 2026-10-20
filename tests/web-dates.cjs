@@ -1,0 +1,11 @@
+const fs=require('node:fs');const vm=require('node:vm');const assert=require('node:assert/strict');
+const source=fs.readFileSync(require('node:path').join(__dirname,'../assets/messenger.js'),'utf8');
+const format=source.split('\n').find(line=>line.includes('function formatDate('));
+assert(format,'Actual web formatter must exist');
+const sandbox={Date,Intl:{DateTimeFormat:function(_,options){return new Intl.DateTimeFormat('en-US',{...options,timeZone:'America/New_York'});}}};
+vm.runInNewContext(format+';globalThis.format=formatDate;',sandbox);
+assert.match(sandbox.format('2026-10-19 21:53:24','2026-10-19T21:53:24-04:00'),/9:53 PM/);
+assert.match(sandbox.format('2026-10-20 01:53:24','2026-10-20T01:53:24+00:00'),/9:53 PM/);
+assert.equal(sandbox.format('2026-10-19 21:53:24'), '2026-10-19 21:53:24');
+assert.equal(sandbox.format(null,null),'');
+console.log('Web timestamp checks: 4');

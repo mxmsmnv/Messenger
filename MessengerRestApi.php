@@ -2,7 +2,7 @@
 
 /** Same-origin JSON transport for the Messenger frontend. */
 final class MessengerRestApi extends Wire {
-	private const MAX_BODY_BYTES = 65536;
+	private const MAX_BODY_BYTES = 1048576;
 	private const RATE_SESSION_KEY = 'MessengerRestRate';
 	private Messenger $messenger;
 
@@ -35,6 +35,13 @@ final class MessengerRestApi extends Wire {
 			if($method === 'POST' && !$native) $this->validateCsrf($body);
 
 			switch($resource) {
+				case 'client-policy':
+					$this->allow($method,['GET']);$result=$this->messenger->clientPolicy($actor);break;
+				case 'recipient-context':
+					$this->allow($method,['GET']);
+					$id=$this->wire()->input->get('user_id');
+					if(!is_string($id)||!preg_match('/^[1-9][0-9]{0,18}$/D',$id)||(string)(int)$id!==$id)throw new \InvalidArgumentException('A positive user_id is required.');
+					$result=$this->messenger->recipientContext($actor,$this->wire()->users->get((int)$id));break;
 				case 'presence':
 					$this->allow($method,['GET','POST']);
 					if($method==='GET')$result=$this->messenger->presence($actor);

@@ -31,9 +31,16 @@ final class MessengerMobileAuth {
 	public function origin(): string {
 		if(!(bool)$this->module->mobile_enabled) $this->fail('mobile_disabled', 404);
 		$origin = rtrim(trim((string)$this->module->mobile_origin), '/');
+		if($origin==='') {
+			// httpHosts is explicit installation configuration. Never use runtime httpHost/Host/X-Forwarded-Host.
+			$hosts=$this->module->wire('config')->httpHosts??[];
+			$host=is_array($hosts)?trim((string)($hosts[0]??'')):'';
+			if($host===''||preg_match('~[\s/@?#\\\\*]~',$host))$this->fail('configuration_unavailable',503);
+			$origin='https://'.$host;
+		}
 		$p = parse_url($origin);
 		if(!$p || !filter_var($origin,FILTER_VALIDATE_URL) || ($p['scheme'] ?? '') !== 'https' || empty($p['host']) || (isset($p['user']) || isset($p['pass'])) || isset($p['query']) || isset($p['fragment']) || (isset($p['path']) && $p['path'] !== '')) $this->fail('configuration_unavailable', 503);
-		return $origin;
+		return 'https://'.strtolower((string)$p['host']).(isset($p['port'])&&(int)$p['port']!==443?':'.(int)$p['port']:'');
 	}
 	public function assertTransport(): void {
 		$origin = $this->origin(); $p = parse_url($origin);
@@ -51,13 +58,15 @@ final class MessengerMobileAuth {
 		return ['protocol'=>'narzan-v1','issuer'=>$origin,'site_id'=>$this->digest('site|' . $origin . '|' . $base),
 			'authorize_endpoint'=>$base . '/messenger-mobile/v1/authorize/', 'token_endpoint'=>$base . '/messenger-mobile/v1/token/',
 			'refresh_endpoint'=>$base . '/messenger-mobile/v1/refresh/', 'revoke_endpoint'=>$base . '/messenger-mobile/v1/revoke/',
-			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>false, 'features'=>['presence','directory','attachments','read_receipts','message_info','contact_book','retention','chat_delete','chat_mute']];
+			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>false, 'features'=>['client_policy','recipient_context','presence','directory','attachments','read_receipts','message_info','contact_book','retention','chat_delete','chat_mute']];
 	}
 	public function authorizationRequest(array $input): array {
 		$this->origin();
 		foreach(['redirect_uri','state','code_challenge','code_challenge_method','device_name'] as $key) if(isset($input[$key]) && !is_string($input[$key])) $this->fail('invalid_request');
 		$redirect = (string)($input['redirect_uri'] ?? '');
-		$allowed = preg_split('/\s+/', trim((string)$this->module->mobile_redirect_uris), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+		// An empty override selects the shipped Narzan identity, never arbitrary callback discovery.
+		$configured=trim((string)$this->module->mobile_redirect_uris);
+		$allowed = $configured==='' ? ['org.smnv.narzan.dev://auth/callback'] : (preg_split('/\s+/', $configured, -1, PREG_SPLIT_NO_EMPTY) ?: []);
 		$p = parse_url($redirect);
 		$scheme=strtolower((string)($p['scheme']??''));
 		if(!$p || !$redirect || !in_array($redirect, $allowed, true) || isset($p['fragment']) || isset($p['user']) || isset($p['pass']) || !isset($p['scheme']) || ($scheme!=='https' && !preg_match('/^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+$/D',$scheme))) $this->fail('invalid_redirect_uri');

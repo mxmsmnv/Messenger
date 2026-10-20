@@ -15,7 +15,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 146;
+	public const VERSION = 147;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -39,7 +39,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 146,
+			'version' => 147,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -198,10 +198,10 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$lifecycle->add($encryption);
 		$inputfields->add($lifecycle);
 
-		$mobile = $fieldset('mobile', $this->_('Narzan mobile access'), 'mobile', $this->_('Optional device authorization. Configure HTTPS issuer and exact app callbacks before enabling.'));
+		$mobile = $fieldset('mobile', $this->_('Narzan mobile access'), 'mobile', $this->_('Optional device authorization. Set your HTTPS origin and existing website sign-in. The official Narzan callback is built in.'));
 		$add($mobile, 'InputfieldCheckbox', 'mobile_enabled', $this->_('Enable mobile access'), $this->_('Off by default; does not change browser sessions or CSRF.'), 100);
-		$add($mobile, 'InputfieldText', 'mobile_origin', $this->_('Canonical HTTPS origin'), $this->_('Exact HTTPS origin without a path, for example https://example.com. Never inferred from request headers.'), 100);
-		$add($mobile, 'InputfieldTextarea', 'mobile_redirect_uris', $this->_('Allowed application callback URIs'), $this->_('One exact URI per line. No wildcard or HTTP callbacks. Set only after choosing the app identity.'), 100);
+		$add($mobile, 'InputfieldText', 'mobile_origin', $this->_('Canonical HTTPS origin (optional)'), $this->_('Leave empty to use the first domain explicitly configured in ProcessWire httpHosts. Advanced override: exact HTTPS origin without a path. Never inferred from request headers.'), 100);
+		$add($mobile, 'InputfieldTextarea', 'mobile_redirect_uris', $this->_('Custom application callback URIs (optional)'), $this->_('Leave empty for the official Narzan app. Advanced: one exact URI per line replaces the built-in callback. No wildcard or HTTP callbacks.'), 100);
 		$add($mobile, 'InputfieldText', 'mobile_login_path', $this->_('Existing website sign-in path'), $this->_('Optional same-origin path. The consuming site owns login and registration.'), 50);
 		$add($mobile, 'InputfieldText', 'mobile_login_return_param', $this->_('Sign-in return parameter'), $this->_('Exact parameter already supported by the site login, for example return. Leave blank when unavailable.'), 50);
 		$inputfields->add($mobile);
@@ -356,6 +356,30 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		return ['decision' => $mode === 'open' ? 'allow' : ($mode === 'requests' ? 'request' : 'deny'), 'reason' => $mode === 'closed' ? 'A connection is required.' : ''];
 	}
 
+	/** Effective member-facing limits; infrastructure and secrets are deliberately excluded. */
+	public function clientPolicy(User $actor): array {
+		$this->assertActor($actor);return $this->effectiveClientPolicy();
+	}
+	private function effectiveClientPolicy(): array {
+		return ['first_contact_mode'=>in_array((string)$this->first_contact_mode,['open','requests','closed'],true)?(string)$this->first_contact_mode:'requests',
+			'max_message_length'=>max(1,min(50000,(int)$this->max_message_length)),
+			'max_pending_request_messages'=>max(1,(int)$this->max_pending_request_messages),
+			'edit_window_minutes'=>max(0,(int)$this->edit_window_minutes),'delete_window_minutes'=>max(0,(int)$this->delete_window_minutes),
+			'poll_thread_seconds'=>max(3,min(60,(int)$this->poll_thread_seconds)),
+			'poll_inbox_seconds'=>max(10,min(300,(int)$this->poll_inbox_seconds))];
+	}
+
+	/** Resolve a pair without creating a chat or sending a message. Never trusts client relationship claims. */
+	public function recipientContext(User $actor, User $recipient): array {
+		$this->assertActor($actor); $this->assertRecipient($actor,$recipient);
+		$id=$this->directConversationId((int)$actor->id,(int)$recipient->id);
+		$conversation=$id>0?$this->conversation($id,$actor):null;
+		if($conversation) return ['conversation'=>$conversation,'decision'=>'existing'];
+		$decision=$this->messagingDecision($actor,$recipient);
+		$this->assertRecipient($actor,$recipient);
+		return ['conversation'=>null,'decision'=>in_array($decision['decision']??'',['allow','request'],true)?$decision['decision']:'deny'];
+	}
+
 	public function startConversation(User $actor, User $recipient, string $body, string $clientId = '', array $context = []): array {
 		$this->assertActor($actor);
 		$this->assertRecipient($actor, $recipient);
@@ -501,7 +525,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$stmt = $this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,reply_to_id,moderation_state,created_at,edited_at,deleted_at,expires_at FROM `' . self::TABLE_MESSAGES . '` WHERE ' . implode(' AND ', $where) . ' ORDER BY id ' . $order . ' LIMIT ' . $limit);
 		$stmt->execute($params); $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 		if(!$afterId) $items = array_reverse($items);
-		foreach($items as &$item) { $item=$this->applyExpiry($item);$item['id'] = (int)$item['id']; $item['conversation_id'] = (int)$item['conversation_id']; $item['sender_user_id'] = (int)$item['sender_user_id']; $item['body'] = $item['deleted_at'] ? '' : $this->decryptMessageRow($item); $item['attachment']=$item['deleted_at']?null:$this->messageAttachment((int)$item['id']); $mediaGroup=$this->messageMediaGroup($item,(string)$item['client_id']);if($mediaGroup!==null)$item['media_group_id']=$mediaGroup; unset($item['client_id']); }
+		foreach($items as &$item) { $item=$this->applyExpiry($item);$item['id'] = (int)$item['id']; $item['conversation_id'] = (int)$item['conversation_id']; $item['sender_user_id'] = (int)$item['sender_user_id']; $item['body'] = $item['deleted_at'] ? '' : $this->decryptMessageRow($item); $item['attachment']=$item['deleted_at']?null:$this->messageAttachment((int)$item['id']); $mediaGroup=$this->messageMediaGroup($item,(string)$item['client_id']);if($mediaGroup!==null)$item['media_group_id']=$mediaGroup; unset($item['client_id']); $item=$this->memberMessagePresentation($item,$actor); }
 		return $items;
 	}
 
@@ -557,7 +581,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$body=$this->messageBody($body);$now=$this->now();
 			$this->execute('UPDATE `' . self::TABLE_MESSAGES . '` SET body=?,edited_at=? WHERE id=?',[$this->encryptValue($body,$this->messageAad($message)),$now,$messageId]);
 			$this->audit('message_edited',(int)$message['conversation_id'],$messageId,(int)$actor->id);
-			$message['body']=$body;$message['edited_at']=$now;unset($message['client_id'],$message['request_hash']);return $message;
+			$message['body']=$body;$message['edited_at']=$now;unset($message['client_id'],$message['request_hash']);return $this->memberMessagePresentation($message,$actor);
 		});
 	}
 
@@ -630,7 +654,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		});
 	}
 	public function setArchived(int $conversationId, User $actor, bool $archived): void { $this->participantMutation($conversationId, $actor, 'archived_at', $archived ? $this->now() : null); }
-	public function setMuted(int $conversationId, User $actor, ?string $until): void { if($until && strtotime($until) === false) throw new WireException('Invalid mute time.'); $this->participantMutation($conversationId, $actor, 'muted_until', $until); }
+	public function setMuted(int $conversationId, User $actor, ?string $until): void { if($until && strtotime($until) === false) throw new WireException('Invalid mute time.'); $this->participantMutation($conversationId, $actor, 'muted_until', $until?date('Y-m-d H:i:s',strtotime($until)):null); }
 	public function setEmailMode(int $conversationId, User $actor, string $mode): void { if(!in_array($mode, ['instant','digest','off'], true)) throw new WireException('Invalid notification preference.'); $this->participantMutation($conversationId, $actor, 'email_mode', $mode); }
 
 	public function blockUser(User $actor, User $blocked, string $reason = ''): void {
@@ -778,7 +802,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$endpoint = (string)($options['api'] ?? '/messenger-api/' . self::REST_API_VERSION . '/');
 		return '<section' . $this->frontendAttributes('app', [
 			'class' => 'MessengerApp', 'data-messenger-app' => '', 'data-api' => $endpoint,
-			'data-thread-poll' => max(3,(int)$this->poll_thread_seconds), 'data-inbox-poll' => max(10,(int)$this->poll_inbox_seconds),
+			'data-max-length'=>max(1,min(50000,(int)$this->max_message_length)), 'data-thread-poll' => max(3,min(60,(int)$this->poll_thread_seconds)), 'data-inbox-poll' => max(10,min(300,(int)$this->poll_inbox_seconds)),
 			'data-framework' => $framework, 'data-ui' => $ui,
 		]) . '><header' . $this->frontendAttributes('header', ['class' => 'MessengerApp-header']) . '><h1>' . $title . '</h1><button type="button"' . $this->frontendAttributes('button_primary', ['data-messenger-new' => '']) . '>' . $this->_('New message') . '</button></header><div' . $this->frontendAttributes('layout', ['class' => 'MessengerApp-layout']) . '><aside' . $this->frontendAttributes('inbox', ['class' => 'MessengerInbox', 'aria-label' => $this->_('Conversations')]) . '><nav' . $this->frontendAttributes('tabs') . '><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'inbox', 'aria-current' => 'page']) . '>' . $this->_('Inbox') . '</button><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'requests']) . '>' . $this->_('Requests') . '</button><button type="button"' . $this->frontendAttributes('tab', ['data-scope' => 'archived']) . '>' . $this->_('Archived') . '</button></nav><form' . $this->frontendAttributes('search_form', ['class' => 'MessengerSearch', 'data-message-search' => '']) . '><input type="search" name="q" minlength="2" placeholder="' . $this->_('Search messages') . '"' . $this->frontendAttributes('input') . '><button type="submit"' . $this->frontendAttributes('button_secondary', ['aria-label' => $this->_('Search')]) . '>⌕</button></form><div' . $this->frontendAttributes('conversation_list', ['data-conversation-list' => '', 'aria-live' => 'polite']) . '><p' . $this->frontendAttributes('status', ['class' => 'MessengerState']) . '>' . $this->_('Loading conversations…') . '</p></div></aside><section' . $this->frontendAttributes('thread', ['class' => 'MessengerThread', 'data-thread' => '']) . '><div' . $this->frontendAttributes('empty', ['class' => 'MessengerEmpty']) . '><h2>' . $this->_('Select a conversation') . '</h2><p>' . $this->_('Your private messages and requests appear here.') . '</p></div></section></div><div' . $this->frontendAttributes('status', ['class' => 'MessengerLive', 'role' => 'status', 'aria-live' => 'polite', 'data-messenger-status' => '']) . '></div></section>';
 	}
@@ -826,7 +850,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if(((int)$fromVersion===143 && in_array((int)$toVersion,[144,145,146],true)) || ((int)$fromVersion===144 && in_array((int)$toVersion,[145,146],true)) || ((int)$fromVersion===145 && (int)$toVersion===146)) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=147) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 
@@ -837,7 +861,16 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$stmt->execute([$conversationId,(int)$actor->id,$clientId,$this->encryptValue($body,$this->messageAad($message)),$this->contentFingerprint($requestBody??$body),$now,$expiresAt]); $id=(int)$this->wire('database')->lastInsertId();
 		$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET last_message_id=?,last_message_at=?,updated_at=? WHERE id=?',[$id,$now,$now,$conversationId]);
 		$this->execute('UPDATE messenger_participants SET archived_at=NULL,hidden_before=NULL WHERE conversation_id=? AND hidden_before IS NOT NULL AND hidden_through_message_id<?',[$conversationId,$id]);
-		return ['id'=>$id,'conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'body'=>$body,'moderation_state'=>'visible','created_at'=>$now,'edited_at'=>null,'deleted_at'=>null,'expires_at'=>$expiresAt];
+		return $this->memberMessagePresentation(['id'=>$id,'conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'body'=>$body,'moderation_state'=>'visible','created_at'=>$now,'edited_at'=>null,'deleted_at'=>null,'expires_at'=>$expiresAt],$actor);
+	}
+
+	private function memberMessagePresentation(array $item,User $actor): array {
+		$sent=strtotime((string)($item['created_at']??''));
+		$own=(int)($item['sender_user_id']??0)===(int)$actor->id && empty($item['deleted_at']);
+		$item['created_at_iso']=$sent===false?null:date('c',$sent);
+		$item['can_edit']=$own && (int)$this->edit_window_minutes>0 && $sent!==false && $sent>=time()-(int)$this->edit_window_minutes*60;
+		$item['can_delete_for_everyone']=$own && (int)$this->delete_window_minutes>0 && $sent!==false && $sent>=time()-(int)$this->delete_window_minutes*60;
+		return $item;
 	}
 
 	private function decorateConversation(array $row, User $actor): array {
@@ -845,11 +878,16 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$row['id']=(int)$row['id']; $row['requester_id']=(int)$row['requester_id']; $row['recipient_id']=(int)$row['recipient_id']; $row['last_message_id']=(int)$row['last_message_id']; $row['last_read_message_id']=(int)($row['last_read_message_id']??0); $row['unread_count']=(int)($row['unread_count']??0);
 		$row['auto_delete_seconds']=(int)($row['auto_delete_seconds']??0);$row['auto_delete_at']=isset($row['auto_delete_at'])?(int)$row['auto_delete_at']:null;$row['muted_until_epoch']=$row['muted_until']?strtotime((string)$row['muted_until']):null;$row['muted']=$row['muted_until_epoch']!==null&&$row['muted_until_epoch']>time();
 		$row['message_revision']=$this->scalar("SELECT COUNT(*) FROM messenger_audit WHERE conversation_id=? AND (action IN ('message_expiry_changed','message_expired','message_edited','message_deleted') OR (action IN ('message_hidden','conversation_deleted_for_user') AND actor_user_id=?))",[(int)$row['id'],(int)$actor->id]);
-		$row['sort_at']=(string)($row['last_message_at']?:$row['created_at']);
+		$row['client_policy']=$this->effectiveClientPolicy();
+		$row['sort_at']=(string)($row['last_message_at']?:$row['created_at']);$row['sort_at_iso']=date('c',strtotime($row['sort_at']));
 		$row['blocked_by_actor']=$this->isBlockedBy((int)$actor->id,$otherId);
 		$row['blocked_by_other']=$this->isBlockedBy($otherId,(int)$actor->id);
 		$row['blocked']=$row['blocked_by_actor']||$row['blocked_by_other'];
 		$safePeer=!$row['blocked']&&$this->canReceive($other);
+		$pending=(string)$row['request_state']==='pending';
+		$remaining=$pending?max(0,max(1,(int)$this->max_pending_request_messages)-$this->scalar('SELECT COUNT(*) FROM messenger_messages WHERE conversation_id=? AND sender_user_id=? AND deleted_at IS NULL',[(int)$row['id'],(int)$actor->id])):0;
+		$row['can_send']=$safePeer && (string)$row['state']==='active' && ((string)$row['request_state']==='accepted'||($pending&&(int)$row['requester_id']===(int)$actor->id&&$remaining>0));
+		$row['can_attach']=$row['can_send'] && (string)$row['request_state']==='accepted';
 		$row['other_last_read_message_id']=$safePeer?$this->scalar('SELECT last_read_message_id FROM `' . self::TABLE_PARTICIPANTS . '` WHERE conversation_id=? AND user_id=?',[(int)$row['id'],$otherId]):0;
 		$row['other_user']=['presence'=>$safePeer?$this->memberPresence($otherId):['status'=>'offline','text'=>'','expires_at'=>0],'id'=>$otherId,'name'=>$other->id?(string)$other->name:'','title'=>$other->id?(string)($other->get('title')?:$other->name):$this->_('Unavailable member')];
 		if($row['last_message_id']) { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,created_at,deleted_at,expires_at FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND id>? AND id NOT IN (SELECT message_id FROM `' . self::TABLE_MESSAGE_HIDES . '` WHERE user_id=?) ORDER BY id DESC LIMIT 1'); $stmt->execute([(int)$row['id'],(int)($row['hidden_through_message_id']??0), (int)$actor->id]); $last=$stmt->fetch(\PDO::FETCH_ASSOC); if($last){$last=$this->applyExpiry($last);$last['body']=$last['deleted_at']?'':mb_substr($this->decryptMessageRow($last),0,160);unset($last['client_id']);$row['last_message']=$last;} }
@@ -947,8 +985,8 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	private function isBlockedBy(int $blockerId,int $blockedId): bool { return $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_BLOCKS . '` WHERE blocker_user_id=? AND blocked_user_id=?',[$blockerId,$blockedId])>0; }
 	private function isBlockedEitherWay(int $a,int $b): bool { return $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_BLOCKS . '` WHERE (blocker_user_id=? AND blocked_user_id=?) OR (blocker_user_id=? AND blocked_user_id=?)',[$a,$b,$b,$a])>0; }
 	private function messageByClientId(int $userId,string $clientId): array { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,request_hash,moderation_state,created_at,edited_at,deleted_at,expires_at FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND client_id=? LIMIT 1');$stmt->execute([$userId,$clientId]);$message=$stmt->fetch(\PDO::FETCH_ASSOC)?:[];if($message){$message=$this->applyExpiry($message);$message['body']=$message['deleted_at']?'':$this->decryptMessageRow($message);unset($message['client_id']);}return $message; }
-	private function assertMessageRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-60)]); if($count>=max(1,(int)$this->max_messages_minute)) throw new WireException('Please wait before sending more messages.'); }
-	private function assertNewRecipientRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_CONVERSATIONS . '` WHERE requester_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-86400)]); if($count>=max(1,(int)$this->max_new_recipients_day)) throw new WireException('Daily new conversation limit reached.'); }
+	private function assertMessageRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-60)]); if($count>=max(1,(int)$this->max_messages_minute)) throw new MessengerMobileException('rate_limited','Please wait before sending more messages.',429); }
+	private function assertNewRecipientRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_CONVERSATIONS . '` WHERE requester_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-86400)]); if($count>=max(1,(int)$this->max_new_recipients_day)) throw new MessengerMobileException('rate_limited','Daily new conversation limit reached.',429); }
 	private function now(): string { return date('Y-m-d H:i:s'); }
 	private function scalar(string $sql,array $params=[]): int { $stmt=$this->wire('database')->prepare($sql);$stmt->execute($params);return (int)$stmt->fetchColumn(); }
 	private function execute(string $sql,array $params=[]): void { $stmt=$this->wire('database')->prepare($sql);$stmt->execute($params); }

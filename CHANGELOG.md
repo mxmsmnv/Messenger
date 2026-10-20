@@ -2,6 +2,17 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.7] - 2026-10-19
+
+- Add authenticated recipient-context resolution without creating a chat or sending a message; existing accepted/archived/pending pairs are resolved before first-contact policy is considered. Blocks, restrictions and trusted site hooks remain authoritative.
+- Publish effective member-facing length, request, edit/delete and polling settings through an authenticated client-policy endpoint. Conversation payloads include server-derived send/attachment capabilities.
+- Default the issuer to the first explicitly configured ProcessWire httpHosts domain when the advanced origin override is empty; never use runtime Host headers.
+- Use the official exact Narzan callback when the advanced callback override is empty. Explicit custom lists still replace the built-in callback; no wildcard, dynamic registration or issuer/TLS relaxation.
+- Correct web timestamps using additive offset-bearing ISO values, use configured text limits and pending-send capabilities, hide ineligible edit/delete actions on message reload, normalize timezone-aware mute times, and resume existing pairs from New message.
+- Guard late web actions/search responses against navigation, preserve active searches/drafts during polling, and keep immutable IDs for manual send/start retries.
+- Allow bounded1MiB JSON text requests so a configured50,000-code-point Unicode message fits without truncation.
+- Additive, no-schema upgrade from143–146; browser CSS, encryption, permissions, sessions and existing mobile grant identities are preserved.
+
 ## [1.4.6] - 2026-10-19
 
 ### Added
