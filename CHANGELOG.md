@@ -2,6 +2,19 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.5.0] - 2026-10-21
+
+- Add native-only, explicitly consented call-quality feedback: integer stars and
+  strictly enumerated issues, with no free text, audio or message content.
+- Feedback is encrypted at rest, one immutable report per call/participant, exact
+  original grant-bound, limited to ended calls with offer/answer negotiation and
+  a 24-hour submission window. Media/push can remain disabled while reporting.
+- Explicit `installExperimentalCalls` adds one feedback-only table; capability is
+  advertised only once that table exists. Patch upgrades perform no schema work.
+- Private bounded export requires both administrator and export authority (or
+  superuser). Reports expire after 30 days via export/write/CLI maintenance.
+- No existing web JS/CSS, base message schema, policy defaults or keys change.
+
 ## [1.4.9] - 2026-10-21
 
 - Correct background call delivery under real ProcessWire current-user semantics.

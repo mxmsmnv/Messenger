@@ -34,7 +34,7 @@ final class MessengerRestApi extends Wire {
 			$body = $method === 'POST' ? $this->jsonBody($resource) : [];
 			if($method === 'POST' && !$native) $this->validateCsrf($body);
 
-            if(in_array($resource,['call-config','call-device','call-start','call-inbox','call-state','call-ice','call-signal'],true)) {
+            if(in_array($resource,['call-config','call-device','call-start','call-inbox','call-state','call-ice','call-signal','call-feedback'],true)) {
                 if(!$native)throw new WirePermissionException('Native connection required.');
                 $result=$this->messenger->experimentalCallRequest($actor,$auth->authenticatedGrant($authorization),$resource,$method,$body,['id'=>$this->wire()->input->get('id'),'after'=>$this->wire()->input->get('after')]);
                 return $this->response(200,$result);

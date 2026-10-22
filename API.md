@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.4.9 (ProcessWire module version `149`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.0 (ProcessWire module version `150`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -297,11 +297,11 @@ Conversation payloads add `can_send` and `can_attach`; pending requesters can se
 An empty advanced `mobile_redirect_uris` override now selects exactly `org.smnv.narzan.dev://auth/callback`, the registered official Narzan identity. An explicit list replaces that default. Mobile access remains off by default, with an explicit canonical HTTPS origin (or the first trusted ProcessWire httpHosts entry), S256 PKCE, state/issuer checks, consent, CSRF and one-time code exchange. Never infer the issuer or callbacks from request headers; never allow wildcard or dynamically supplied callbacks. Site-specific sign-in path/return-parameter configuration remains necessary when the website provides that integration.
 
 
-## Experimental native audio calls (1.4.9)
+## Experimental native audio calls (1.5.0)
 
 Calls are disabled by default and require explicit private operator configuration,
 authenticated TURN, APNs/FCM and `installExperimentalCalls($administrator)` for the
-four additive calls tables. No base messaging migration runs during patch upgrade.
+five additive calls tables. No base messaging migration runs during patch upgrade.
 See [operator deployment and rollback](deploy/calls/README.md).
 
 Native bearer-grant endpoints: GET `call-config`, `call-inbox`, `call-state?id=...&after=...`,
@@ -311,3 +311,51 @@ site-send capabilities, blocking/restrictions and selected-device ownership appl
 SDP and push tokens are encrypted at rest; media uses WebRTC outside PHP. CLI-only
 `processExperimentalCallPushes` dispatches at most20invitations per invocation.
 This does not add video/group calls, message E2EE or background message delivery.
+
+### Consented call quality feedback (1.5.0)
+
+The operator must explicitly re-run `installExperimentalCalls($administrator)`
+after backing up, to add `messenger_call_feedback`. The patch lifecycle creates no
+schema. `GET call-config` advertises `feedback_enabled` only when that table is
+available; this capability is independent of `enabled` (media/TURN/push).
+
+A native bearer can submit `POST call-feedback` with exactly:
+
+```json
+{"id":"call-uuid","stars":4,"issues":["echo","delay"],"consent":true}
+```
+
+`stars` is an integer 1–5. `issues` is a distinct list with at most nine values from
+`no_audio`, `quiet`, `distortion`, `echo`, `delay`, `dropouts`, `connection`,
+`speaker`, `microphone`; an empty list is valid. Free text, recordings, conversation
+content, addresses, device identifiers and extra fields are rejected. Explicit
+consent is mandatory; clients must offer Skip and never silently send a local
+rating. Success is `{"saved":true}` inside the normal REST response envelope.
+
+The current non-revoked native grant must be the original caller or answering
+device, with the matching participant identity. Calls must be ended, accepted,
+with both offer and answer signaling and created within the last 24 hours. This
+proves negotiation, not that audio was audible. Calls still ringing, merely missed,
+rejected, unnegotiated, another device, outsiders and revoked grants are denied.
+Feedback remains possible after calls are disabled or the peer is blocked: this
+metadata-only operation cannot resume media, send messages or access peer content.
+One report per call and participant is immutable; identical canonical retries
+return success, changed retries return `idempotency_conflict` (409).
+
+Feedback content is encrypted with the existing site key. There is no public
+report-reading REST endpoint or automatically created dashboard. Server-side
+`experimentalCallFeedback(User $actor,string $after='',int $limit=100)` is the
+supported bounded export method; it requires superuser or **both**
+`messenger-admin` and `messenger-export`. It returns `items` (call ID, participant
+user ID, submission epoch seconds, stars, issues) and a `next` composite cursor.
+Pass `next` unchanged to continue, until null. Limits are 1–200. Export includes
+participant identifiers only for the site's authorized operator; it is not
+anonymous analytics. Do not publish these records or query the table from templates.
+
+Reports older than 30 days are excluded and physically purged on submission,
+private export or the existing administrator CLI push-maintenance invocation,
+including when calls are off. An idle website with no such execution requires
+operator-scheduled maintenance for timely physical removal; no timer is installed
+or enabled automatically. Site backups have the operator's separate retention.
+Call/signaling records keep their existing one-day cleanup; the feedback is
+independent and cannot restore a call. Uninstall continues retaining tables.

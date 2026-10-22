@@ -59,7 +59,7 @@ Never remove a shared relay/package without checking other owners.
 8. Load private `messenger-config.example.php` from the site's private config as
    `$config->messengerCalls`. Keep both booleans false. As an existing approved
    administrator, call `$modules->get('Messenger')->installExperimentalCalls($actor)`
-   once. This creates only four calls tables, with no base-message migration.
+   once. This creates five calls-only tables (including quality feedback), with no base-message migration.
 9. Validate provider authentication, one controlled push on each physical platform,
    authenticated TURN allocation/TLS and real two-device audio before setting
    `enabled` and `push_ready` true. Install the reviewed push service/timer under
@@ -102,3 +102,30 @@ messages, module encryption keys, permissions, site assets and active web traffi
 Do not restore the whole database over intervening user messages. The additive
 calls tables can remain disabled; destructive data removal is a separate decision.
 Never uninstall another site's coturn service or rotate a shared secret blindly.
+
+## Optional call-quality reports (1.5.0 candidate)
+
+Back up the existing database and runtime first. Installing the code alone does
+not create a feedback table or enable calls. Explicitly invoke the public
+`installExperimentalCalls($administrator)` from the site's authorized CLI context
+once to add `messenger_call_feedback`; the operation is repeatable and does not
+alter the four existing calls tables. Validate `call-config.feedback_enabled`
+using a real native grant, including while `enabled` is false.
+
+Reports require user consent, stay on the connected website, and contain only
+stars and enumerated issues plus participant/call/submission metadata. The
+supported administrative export is `experimentalCallFeedback`, with separate
+admin/export permissions, cursor pagination and a maximum page of 200. Never
+publish its output. See API.md for payload, ownership and retention boundaries.
+
+Keep an explicitly authorized maintenance invocation running if physical removal
+at 30 days is required on an otherwise idle site. The existing CLI push worker
+purges expired reports before checking whether calling is enabled, but this
+release does not install or enable a timer. A disabled timer means cleanup awaits
+a later authorized invocation, export or new submission. Read/export never
+returns expired reports; backup retention is independent.
+
+Rollback can restore the previous runtime without dropping the additive feedback
+table; previous code ignores it. Do not delete reports or restore a database over
+newer website messages as an ordinary code rollback. Web assets and live calling
+configuration are unchanged by this candidate.

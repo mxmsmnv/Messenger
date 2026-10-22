@@ -13,12 +13,58 @@ trait MessengerCalls {
             'messenger_call_devices'=>'grant_id CHAR(32) PRIMARY KEY,user_id BIGINT NOT NULL,platform VARCHAR(12) NOT NULL,token TEXT NOT NULL,enabled INTEGER NOT NULL,updated_at BIGINT NOT NULL',
             'messenger_calls'=>'id CHAR(36) PRIMARY KEY,client_id VARCHAR(64) NOT NULL,conversation_id BIGINT NOT NULL,caller_id BIGINT NOT NULL,callee_id BIGINT NOT NULL,caller_grant CHAR(32) NOT NULL,answer_grant CHAR(32) NULL,state VARCHAR(16) NOT NULL,sequence BIGINT NOT NULL,created_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,caller_seen BIGINT NOT NULL DEFAULT 0,callee_seen BIGINT NOT NULL DEFAULT 0,UNIQUE(caller_grant,client_id)',
             'messenger_call_signals'=>'call_id CHAR(36) NOT NULL,sequence BIGINT NOT NULL,grant_id CHAR(32) NOT NULL,client_id VARCHAR(64) NOT NULL,kind VARCHAR(12) NOT NULL,payload TEXT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(call_id,sequence),UNIQUE(call_id,grant_id,client_id)',
+            'messenger_call_feedback'=>'call_id CHAR(36) NOT NULL,user_id BIGINT NOT NULL,payload TEXT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(call_id,user_id)',
             'messenger_call_pushes'=>'call_id CHAR(36) NOT NULL,grant_id CHAR(32) NOT NULL,status VARCHAR(12) NOT NULL,attempts INTEGER NOT NULL,available_at BIGINT NOT NULL,PRIMARY KEY(call_id,grant_id)',
         ] as $table=>$columns)$this->wire('database')->exec("CREATE TABLE IF NOT EXISTS `$table` ($columns)");
+    }
+    /** Schema capability only: never creates a table from a member request. */
+    private function experimentalCallFeedbackReady():bool {
+        try {return $this->wire('database')->query('SELECT call_id FROM messenger_call_feedback LIMIT 0')!==false;}
+        catch(\PDOException $e){return false;}
+    }
+    private function saveExperimentalCallFeedback(User $actor,string $grant,string $method,array $body):array {
+        if(!$this->experimentalCallFeedbackReady())throw new WirePermissionException('Call feedback unavailable.');
+        if($method!=='POST'||count($body)!==4||array_diff(array_keys($body),['id','stars','issues','consent'])||($body['consent']??null)!==true||!is_int($body['stars']??null)||$body['stars']<1||$body['stars']>5||!is_array($body['issues']??null)||!array_is_list($body['issues'])||count($body['issues'])>9||!is_string($body['id']??null)||!preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/D',$body['id']))throw new \InvalidArgumentException('Invalid call feedback.');
+        $allowed=['no_audio','quiet','distortion','echo','delay','dropouts','connection','speaker','microphone'];
+        foreach($body['issues'] as $issue)if(!is_string($issue)||!in_array($issue,$allowed,true))throw new \InvalidArgumentException('Invalid feedback issue.');
+        if(count(array_unique($body['issues']))!==count($body['issues']))throw new \InvalidArgumentException('Duplicate feedback issue.');
+        sort($body['issues']);$id=$body['id'];$user=(int)$actor->id;$db=$this->wire('database');
+        // This metadata-only route deliberately remains available when media/push is off.
+        // It does not depend on a still-sendable chat: a participant may report a bad
+        // call after blocking the peer. The original accepted call and exact grant own it.
+        return $this->atomic(function()use($actor,$grant,$body,$id,$user,$db):array{
+            $lock=$db->getAttribute(\PDO::ATTR_DRIVER_NAME)==='sqlite'?'':' FOR UPDATE';
+            // Serialize with native grant revocation before committing private feedback.
+            $g=$db->prepare('SELECT user_id FROM messenger_mobile_grants WHERE id=? AND revoked_at IS NULL'.$lock);$g->execute([$grant]);
+            if((int)$g->fetchColumn()!==$user)throw new WirePermissionException('Native connection unavailable.');
+            $q=$db->prepare('SELECT * FROM messenger_calls WHERE id=?'.$lock);$q->execute([$id]);$call=$q->fetch(\PDO::FETCH_ASSOC);
+            if(!$call||$call['state']!=='ended'||!$call['answer_grant']||(int)$call['created_at']<time()-86400||!(((int)$call['caller_id']===$user&&$call['caller_grant']===$grant)||((int)$call['callee_id']===$user&&$call['answer_grant']===$grant)))throw new WirePermissionException('Call feedback unavailable.');
+            // Offer + answer establish negotiated media, not proof of audible RTP.
+            $q=$db->prepare("SELECT COUNT(DISTINCT kind) FROM messenger_call_signals WHERE call_id=? AND kind IN ('offer','answer')");$q->execute([$id]);
+            if((int)$q->fetchColumn()!==2)throw new WirePermissionException('Call feedback unavailable.');
+            $payload=json_encode(['stars'=>$body['stars'],'issues'=>$body['issues']],JSON_THROW_ON_ERROR);$aad='Messenger|call-feedback|'.$id.'|'.$user;
+            $this->execute('DELETE FROM messenger_call_feedback WHERE created_at<?',[time()-2592000]);
+            $q=$db->prepare('SELECT payload FROM messenger_call_feedback WHERE call_id=? AND user_id=?');$q->execute([$id,$user]);$old=$q->fetchColumn();
+            if($old!==false){if(!hash_equals($payload,$this->decryptValue($old,$aad)))throw new MessengerMobileException('idempotency_conflict','Feedback already submitted.',409);return ['saved'=>true];}
+            $this->execute('INSERT INTO messenger_call_feedback(call_id,user_id,payload,created_at) VALUES(?,?,?,?)',[$id,$user,$this->encryptValue($payload,$aad),time()]);
+            return ['saved'=>true];
+        });
+    }
+    /** Private bounded export; admin alone does not confer the export permission. */
+    public function experimentalCallFeedback(User $actor,string $after='',int $limit=100):array {
+        if(!$this->canAdmin($actor)||(!$actor->isSuperuser()&&!$actor->hasPermission('messenger-export')))throw new WirePermissionException('Administrator and export access required.');
+        if($limit<1||$limit>200||($after!==''&&!preg_match('/^([0-9]{1,12}):([a-f0-9-]{36}):([1-9][0-9]{0,18})$/D',$after,$cursor)))throw new \InvalidArgumentException('Invalid feedback page.');
+        if(!$this->experimentalCallFeedbackReady())return ['items'=>[],'next'=>null];
+        $this->execute('DELETE FROM messenger_call_feedback WHERE created_at<?',[time()-2592000]);
+        $where='';$params=[];if($after!==''){$where=' WHERE created_at>? OR (created_at=? AND call_id>?) OR (created_at=? AND call_id=? AND user_id>?)';$params=[(int)$cursor[1],(int)$cursor[1],$cursor[2],(int)$cursor[1],$cursor[2],(int)$cursor[3]];}
+        $q=$this->wire('database')->prepare('SELECT call_id,user_id,payload,created_at FROM messenger_call_feedback'.$where.' ORDER BY created_at,call_id,user_id LIMIT '.$limit);$q->execute($params);$items=[];
+        foreach($q->fetchAll(\PDO::FETCH_ASSOC) as $row){$value=json_decode($this->decryptValue($row['payload'],'Messenger|call-feedback|'.$row['call_id'].'|'.$row['user_id']),true,512,JSON_THROW_ON_ERROR);$items[]=['call_id'=>$row['call_id'],'user_id'=>(int)$row['user_id'],'created_at'=>(int)$row['created_at'],'stars'=>$value['stars'],'issues'=>$value['issues']];}
+        $last=$items?end($items):null;return ['items'=>$items,'next'=>count($items)===$limit?$last['created_at'].':'.$last['call_id'].':'.$last['user_id']:null];
     }
     /** Bounded CLI worker; provider send is injectable for deterministic delivery tests. */
     public function processExperimentalCallPushes(User $actor,callable $send,int $limit=20):array {
         if(PHP_SAPI!=='cli'||!$this->canAdmin($actor))throw new WirePermissionException('CLI administrator required.');
+        if($this->experimentalCallFeedbackReady())$this->execute('DELETE FROM messenger_call_feedback WHERE created_at<?',[time()-2592000]);
         $result=['sent'=>0,'retry'=>0,'discarded'=>0];if(!$this->experimentalCallsReady())return $result;
         $db=$this->wire('database');$this->expireExperimentalCalls();$now=time();$limit=max(1,min(20,$limit));
         $this->execute("UPDATE messenger_call_pushes SET status='pending' WHERE status='processing' AND available_at<?",[$now-30]);
@@ -74,13 +120,14 @@ trait MessengerCalls {
         $this->assertActor($actor);
         if($resource==='call-config') {
             if($method!=='GET')throw new \InvalidArgumentException('GET required.');
-            return ['enabled'=>$this->experimentalCallsReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45];
+            return ['enabled'=>$this->experimentalCallsReady(),'feedback_enabled'=>$this->experimentalCallFeedbackReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45];
         }
-        if(!$this->experimentalCallsReady())throw new WirePermissionException('Experimental calls are not configured.');
         if(!preg_match('/^[a-f0-9]{32}$/D',$grant))throw new WirePermissionException('Native connection required.');
         $db=$this->wire('database');
         $g=$db->prepare('SELECT user_id FROM messenger_mobile_grants WHERE id=? AND revoked_at IS NULL');$g->execute([$grant]);
         if((int)$g->fetchColumn()!==(int)$actor->id)throw new WirePermissionException('Native connection unavailable.');
+        if($resource==='call-feedback')return $this->saveExperimentalCallFeedback($actor,$grant,$method,$body);
+        if(!$this->experimentalCallsReady())throw new WirePermissionException('Experimental calls are not configured.');
         if($resource==='call-device') {
             if($method!=='POST' || !isset($body['enabled']) || !is_bool($body['enabled']))throw new \InvalidArgumentException('Enabled flag required.');
             $platform=$body['platform']??'';$token=$body['token']??'';

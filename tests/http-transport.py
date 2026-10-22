@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Disposable PHP HTTP integration with fixture services; no real site/TLS/database."""
-import base64, hashlib, html, json, os, pathlib, socket, subprocess, tempfile, time
+import base64, hashlib, html, json, os, pathlib, socket, sqlite3, subprocess, tempfile, time
 import urllib.request, urllib.parse, urllib.error
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 checks=0
@@ -87,6 +87,32 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/message-info/?message_id='+str(message_id),{},token=tokens['access_token'])
             check(status==405 and not json.loads(text)['ok'],'metadata HTTP POST is not a write path')
             check('no-store' in meta_headers.get('Cache-Control','') and not any(key.lower()=='access-control-allow-origin' for key in meta_headers),'metadata HTTP response remains private without CORS')
+            # Explicit schema setup on this disposable fixture only, never a live site.
+            status,text,_=request('/messenger-api/v1/call-config/',token=tokens['access_token'])
+            check(status==200 and json.loads(text)['result']['feedback_enabled'] is False,'old HTTP schema feature detection is false')
+            setup="require 'tests/support/bootstrap.php'; [$m]=\\ProcessWire\\fixture(); $a=new class(1) extends \\ProcessWire\\User {public function isSuperuser(){return true;}}; $m->installExperimentalCalls($a);"
+            subprocess.run(['php','-r',setup],cwd=ROOT,env=env,check=True,capture_output=True,timeout=10)
+            with sqlite3.connect(folder+'/fixture.sqlite3') as seed:
+                grant=seed.execute('SELECT id FROM messenger_mobile_grants WHERE user_id=11').fetchone()[0]
+                call_id='12345678-abcd-4abc-8abc-123456789abc'; now=int(time.time())
+                seed.execute("INSERT INTO messenger_calls VALUES(?,?,?,?,?,?,?,'ended',2,?,?,?,?)",(call_id,'http_call_fixture_0001',123,11,22,grant,'b'*32,now,now+3600,now,now))
+                for sequence,kind in enumerate(['offer','answer'],1):
+                    seed.execute('INSERT INTO messenger_call_signals VALUES(?,?,?,?,?,?,?)',(call_id,sequence,grant,'http_signal_00000'+str(sequence),kind,'not-read',now))
+            status,text,_=request('/messenger-api/v1/call-config/',token=tokens['access_token'])
+            check(status==200 and json.loads(text)['result']['feedback_enabled'] is True and json.loads(text)['result']['enabled'] is False,'HTTP feedback available independently of disabled calls')
+            for resource in ['call-config','call-feedback']:
+                status,text,_=request('/messenger-api/v1/'+resource+'/',browser=True)
+                check(status==403,'browser session cannot invoke '+resource)
+            feedback={'id':call_id,'stars':4,'issues':['echo'],'consent':True}
+            status,text,feedback_headers=request('/messenger-api/v1/call-feedback/',feedback,token=tokens['access_token'])
+            check(status==200 and json.loads(text)['result']=={'saved':True},'native consented HTTP feedback accepted')
+            check('no-store' in feedback_headers.get('Cache-Control',''),'feedback response never cached')
+            status,text,_=request('/messenger-api/v1/call-feedback/',feedback,token=tokens['access_token'])
+            check(status==200,'HTTP feedback retry idempotent')
+            status,text,_=request('/messenger-api/v1/call-feedback/',feedback|{'stars':1},token=tokens['access_token'])
+            check(status==409 and json.loads(text)['code']=='idempotency_conflict','changed HTTP feedback retry rejected')
+            status,text,_=request('/messenger-api/v1/call-feedback/',feedback|{'consent':False},token=tokens['access_token'])
+            check(status==400,'HTTP feedback requires explicit boolean consent')
             status,text,_=request('/messenger-mobile/v1/refresh/',{'refresh_token':tokens['refresh_token']});new=json.loads(text);check(status==200 and new['access_token']!=tokens['access_token'],'HTTP rotation')
             status,text,_=request('/messenger-api/v1/session/',token=tokens['access_token']);check(status==401,'old access expired after rotation')
             status,text,_=request('/messenger-mobile/v1/revoke/',{'refresh_token':new['refresh_token']});check(status==200,'HTTP device revoke')
