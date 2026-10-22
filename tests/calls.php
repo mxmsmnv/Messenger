@@ -20,9 +20,28 @@ denied(fn()=>$start($a,$ga));$m->acceptRequest($chat,$b);
 $call=$start($a,$ga);check($call['state']==='ringing','accepted chat can start ringing');
 check($start($a,$ga)['id']===$call['id'],'call start retry is idempotent');
 check((int)$db->query('SELECT COUNT(*) FROM messenger_call_pushes')->fetchColumn()===2,'both opted-in recipient devices receive queued invitations');
+// Real ProcessWire users are logged in only when they match the current wire user.
+$originalUser=$m->services['user'];$GLOBALS['calls_current_user']=0;
+$workerCaller=new class($a->id,$a->name)extends User {public function isLoggedin(){return empty($GLOBALS['calls_deny_caller'])&&$this->id===($GLOBALS['calls_current_user']??0);}};
+$m->services['users']=new class($m,$workerCaller,$b) {
+    public function __construct(private $m,private $a,private $b){}
+    public function get($id){return (int)$id===$this->a->id?$this->a:$this->b;}
+    public function setCurrentUser($user){$this->m->services['user']=$user;$GLOBALS['calls_current_user']=(int)$user->id;}
+};
+$m->services['user']=new User(0);
+check(!$workerCaller->isLoggedin(),'background caller is not the CLI current user');
 $delivered=[];$delivery=$m->processExperimentalCallPushes($admin,function($platform,$token,$id)use(&$delivered){$delivered[]=$id;return true;});
 check($delivery['sent']===2&&count($delivered)===2,'bounded worker delivers opted-in registered devices');
+check($m->services['user']->id===0&&$GLOBALS['calls_current_user']===0,'worker restores guest context after successful caller authorization');
+$m->services['users']->setCurrentUser($originalUser);
 check($m->processExperimentalCallPushes($admin,fn()=>true)['sent']===0,'delivered pushes are not sent again');
+$m->wire('database')->exec("UPDATE messenger_call_pushes SET status='pending',attempts=0,available_at=0");
+$GLOBALS['calls_deny_caller']=true;$m->services['users']->setCurrentUser(new User(0));
+$deniedDelivery=$m->processExperimentalCallPushes($admin,fn()=>true);
+check($deniedDelivery['discarded']===2&&$deniedDelivery['sent']===0,'worker still denies caller policy after entering caller context');
+check($m->services['user']->id===0&&$GLOBALS['calls_current_user']===0,'worker restores guest context when caller policy throws');
+$GLOBALS['calls_deny_caller']=false;$m->services['users']->setCurrentUser($originalUser);
+
 $id=$call['id'];
 $signal=fn($actor,$grant,$kind,$payload='',$client='signal_client_000001')=>$m->experimentalCallRequest($actor,$grant,'call-signal','POST',['id'=>$id,'kind'=>$kind,'payload'=>$payload,'client_id'=>$client],[]);
 denied(fn()=>$signal($outsider,$gc,'accept'));

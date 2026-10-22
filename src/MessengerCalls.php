@@ -26,7 +26,13 @@ trait MessengerCalls {
         foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$row){
             $claim=$db->prepare("UPDATE messenger_call_pushes SET status='processing',attempts=attempts+1,available_at=? WHERE call_id=? AND grant_id=? AND status='pending'");$claim->execute([$now,$row['call_id'],$row['grant_id']]);if($claim->rowCount()!==1)continue;
             try{
-                $caller=$this->wire('users')->get((int)$row['caller_id']);$call=$this->callRow($caller,$row['call_id']);if($call['state']!=='ringing')throw new WirePermissionException('Call no longer ringing.');
+                $users=$this->wire('users');$caller=$users->get((int)$row['caller_id']);$previous=$this->wire('user');
+                // ProcessWire User::isLoggedin() is current-user scoped, including in CLI.
+                // Re-evaluate normal caller/conversation policy, then restore the worker context
+                // before handing any registration to the provider (also on denial/exception).
+                try {$users->setCurrentUser($caller);$call=$this->callRow($caller,$row['call_id']);}
+                finally {$users->setCurrentUser($previous);}
+                if($call['state']!=='ringing')throw new WirePermissionException('Call no longer ringing.');
                 $token=$this->decryptValue($row['token'],'Messenger|call-device|'.$row['grant_id']);
                 $accepted=$send($row['platform'],$token,$row['call_id']);
                 if(!$accepted)$this->execute('UPDATE messenger_call_devices SET enabled=0 WHERE grant_id=?',[$row['grant_id']]);

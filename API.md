@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.4.8 (ProcessWire module version `148`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.4.9 (ProcessWire module version `149`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -297,7 +297,7 @@ Conversation payloads add `can_send` and `can_attach`; pending requesters can se
 An empty advanced `mobile_redirect_uris` override now selects exactly `org.smnv.narzan.dev://auth/callback`, the registered official Narzan identity. An explicit list replaces that default. Mobile access remains off by default, with an explicit canonical HTTPS origin (or the first trusted ProcessWire httpHosts entry), S256 PKCE, state/issuer checks, consent, CSRF and one-time code exchange. Never infer the issuer or callbacks from request headers; never allow wildcard or dynamically supplied callbacks. Site-specific sign-in path/return-parameter configuration remains necessary when the website provides that integration.
 
 
-## Experimental native audio calls (1.4.8)
+## Experimental native audio calls (1.4.9)
 
 Calls are disabled by default and require explicit private operator configuration,
 authenticated TURN, APNs/FCM and `installExperimentalCalls($administrator)` for the

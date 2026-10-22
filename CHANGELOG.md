@@ -2,6 +2,15 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.9] - 2026-10-21
+
+- Correct background call delivery under real ProcessWire current-user semantics.
+  The CLI administrator gate remains; each caller is temporarily scoped only while
+  rechecking conversation/block/restriction policy, and the original worker user
+  is restored before provider delivery, including denial and exception paths.
+- Add regression coverage for a guest CLI user and policy-denied callers. No web
+  assets, schema, settings or encryption changes relative to1.4.8.
+
 ## [1.4.8] - 2026-10-21
 
 - Add opt-in experimental one-to-one audio signaling for native revocable grants;
