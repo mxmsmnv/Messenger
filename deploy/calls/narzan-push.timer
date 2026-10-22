@@ -1,0 +1,9 @@
+[Unit]
+Description=Process Narzan call push invitations
+[Timer]
+OnBootSec=10s
+OnUnitInactiveSec=1s
+AccuracySec=250ms
+Unit=narzan-push.service
+[Install]
+WantedBy=timers.target

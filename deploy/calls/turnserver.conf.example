@@ -1,0 +1,36 @@
+# Generated privately during installation; never publish a real auth secret.
+listening-port=3478
+tls-listening-port=5349
+min-port=60000
+max-port=60127
+fingerprint
+use-auth-secret
+static-auth-secret=REPLACE_WITH_PRIVATE_RANDOM_SECRET
+realm=narzan.com
+server-name=narzan.com
+cert=/etc/narzan-calls/fullchain.pem
+pkey=/etc/narzan-calls/privkey.pem
+no-tlsv1
+no-tlsv1_1
+no-cli
+no-multicast-peers
+total-quota=128
+user-quota=4
+max-bps=128000
+bps-capacity=10000000
+stale-nonce=600
+no-software-attribute
+log-file=syslog
+simple-log
+pidfile=/run/narzan-turn/turnserver.pid
+# Prevent authenticated TURN users from reaching loopback, internal or metadata services.
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff

@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.4.7 (ProcessWire module version `147`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.4.8 (ProcessWire module version `148`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -295,3 +295,19 @@ sent/read cursor status and show that exact read time is unavailable.
 Conversation payloads add `can_send` and `can_attach`; pending requesters can send only their remaining configured allowance, recipients must accept, and files require an accepted chat. Message-page payloads add `can_edit`, `can_delete_for_everyone` and `created_at_iso`; conversations add `sort_at_iso`. ISO fields include the server timezone offset, while legacy timestamp fields remain unchanged. Eligibility is advisory presentation data; mutation endpoints recheck ownership, time windows and policy at execution.
 
 An empty advanced `mobile_redirect_uris` override now selects exactly `org.smnv.narzan.dev://auth/callback`, the registered official Narzan identity. An explicit list replaces that default. Mobile access remains off by default, with an explicit canonical HTTPS origin (or the first trusted ProcessWire httpHosts entry), S256 PKCE, state/issuer checks, consent, CSRF and one-time code exchange. Never infer the issuer or callbacks from request headers; never allow wildcard or dynamically supplied callbacks. Site-specific sign-in path/return-parameter configuration remains necessary when the website provides that integration.
+
+
+## Experimental native audio calls (1.4.8)
+
+Calls are disabled by default and require explicit private operator configuration,
+authenticated TURN, APNs/FCM and `installExperimentalCalls($administrator)` for the
+four additive calls tables. No base messaging migration runs during patch upgrade.
+See [operator deployment and rollback](deploy/calls/README.md).
+
+Native bearer-grant endpoints: GET `call-config`, `call-inbox`, `call-state?id=...&after=...`,
+`call-ice?id=...`; POST `call-device`, `call-start`, `call-signal`. Browser sessions
+cannot invoke these endpoints. Grant revocation, accepted active conversation,
+site-send capabilities, blocking/restrictions and selected-device ownership apply.
+SDP and push tokens are encrypted at rest; media uses WebRTC outside PHP. CLI-only
+`processExperimentalCallPushes` dispatches at most20invitations per invocation.
+This does not add video/group calls, message E2EE or background message delivery.

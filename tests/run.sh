@@ -11,6 +11,7 @@ php tests/upgrade-patch.php
 php tests/wirewall-integration.php
 php tests/mobile-domain.php
 php tests/client-policy.php
+php tests/calls.php
 php tests/image-albums.php
 php tests/message-info.php
 php tests/member-features.php

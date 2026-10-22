@@ -1,0 +1,8 @@
+[Unit]
+Description=Check existing Narzan TURN certificate copies every day
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1d
+Persistent=true
+[Install]
+WantedBy=timers.target

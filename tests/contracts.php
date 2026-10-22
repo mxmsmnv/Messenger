@@ -12,12 +12,12 @@ $adminJs = (string)file_get_contents($root . '/assets/messenger-admin.js');
 $broadcasts = (string)file_get_contents($root . '/src/MessengerBroadcasts.php');
 $cli = (string)file_get_contents($root . '/bin/messenger');
 
-if(!str_contains($module, 'public const VERSION = 147;') || !str_contains($module, "'version' => 147") || !str_contains($admin, "'version' => 147") || !str_contains($admin, "'Messenger>=1.4.7'")) throw new RuntimeException('Release version must be 1.4.7 / 147 everywhere.');
+if(!str_contains($module, 'public const VERSION = 148;') || !str_contains($module, "'version' => 148") || !str_contains($admin, "'version' => 148") || !str_contains($admin, "'Messenger>=1.4.8'")) throw new RuntimeException('Release version must be 1.4.8 / 148 everywhere.');
 if(!str_contains($readme, '![Messenger](assets/Messenger.png)') || !is_file($root . '/assets/Messenger.png')) throw new RuntimeException('README doodle contract missing.');
 if(!is_file($root . '/LICENSE') || !str_contains((string)file_get_contents($root . '/LICENSE'), 'MIT License')) throw new RuntimeException('MIT license contract missing.');
 if(!is_file($root . '/.github/FUNDING.yml') || !str_contains((string)file_get_contents($root . '/.github/FUNDING.yml'), 'smnv.org/sponsor')) throw new RuntimeException('Sponsorship metadata contract missing.');
-if(!str_contains($changelog, '## [1.4.7]') || !str_contains($changelog, '## [1.4.5]') || !str_contains($changelog, '## [1.4.4]') || !str_contains($changelog, '## [1.2.0]') || !str_contains($changelog, '## [1.1.0]') || !str_contains($changelog, '## [1.0.2]') || !str_contains($changelog, '## [1.0.1]') || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog release history is incomplete.');
-foreach(['Messenger 1.4.7', 'module version `147`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
+if(!str_contains($changelog, '## [1.4.8]') || !str_contains($changelog, '## [1.4.5]') || !str_contains($changelog, '## [1.4.4]') || !str_contains($changelog, '## [1.2.0]') || !str_contains($changelog, '## [1.1.0]') || !str_contains($changelog, '## [1.0.2]') || !str_contains($changelog, '## [1.0.1]') || !str_contains($changelog, '## [1.0.0]') || !str_contains($changelog, 'First public release.')) throw new RuntimeException('Changelog release history is incomplete.');
+foreach(['Messenger 1.4.8', 'module version `148`'] as $releaseDoc) if(!str_contains($api, $releaseDoc)) throw new RuntimeException("API release contract missing: {$releaseDoc}");
 if(!str_contains($module, "exec('BEGIN IMMEDIATE')") || !str_contains($module, "ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE'") || str_contains($module, "' FOR UPDATE')->fetchAll")) throw new RuntimeException('Portable encryption migration locking is missing.');
 
 $requiredTables = [

@@ -136,6 +136,13 @@ final class MessengerMobileAuth {
 		if(!$row || $row['revoked_at']!==null || $row['consumed_at']!==null || (int)$row['expires_at']<=time())$this->fail('unauthorized',401);
 		return $this->eligible((int)$row['user_id']);
 	}
+	public function authenticatedGrant(string $authorization): string {
+        $this->authenticate($authorization);
+        preg_match('/^Bearer ([A-Za-z0-9_-]{43})$/Di',$authorization,$m);
+        $row=$this->token($this->digest($m[1]),'access');
+        return (string)$row['grant_id'];
+    }
+
 	/** Possession of a refresh token can revoke only its own device connection. */
 	public function revoke(array $body): array {
 		$this->origin();$raw=$body['refresh_token']??'';if(!is_string($raw))$this->fail();$row=$this->token($this->hashCredential($raw),'refresh');

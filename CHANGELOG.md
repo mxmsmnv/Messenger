@@ -2,6 +2,20 @@
 
 All notable changes to Messenger are documented in this file.
 
+## [1.4.8] - 2026-10-21
+
+- Add opt-in experimental one-to-one audio signaling for native revocable grants;
+  accepted conversation, site policy, block/restriction and device ownership apply.
+- Add explicit administrative creation of four additive calls-only tables,
+  encrypted push registrations/SDP, idempotent starts/signals, one-device answer,
+  ringing/heartbeat expiry and temporary authenticated TURN credentials.
+- Add a bounded CLI push outbox sender using APNs VoIP and FCM HTTPv1. Provider
+  credentials stay outside webroot/settings/Git; calls remain off until configured.
+- Existing message tables, web JS/CSS, settings, encryption and login are preserved.
+  Lifecycle upgrades143–147→148 remain no-ops; call schema is an explicit operation.
+- Infrastructure templates and operator rollback/testing requirements documented.
+  Production delivery and real audio are separate deployment gates.
+
 ## [1.4.7] - 2026-10-19
 
 - Add authenticated recipient-context resolution without creating a chat or sending a message; existing accepted/archived/pending pairs are resolved before first-contact policy is considered. Blocks, restrictions and trusted site hooks remain authoritative.

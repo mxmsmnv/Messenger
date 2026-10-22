@@ -1,0 +1,16 @@
+[Unit]
+Description=Narzan experimental call push outbox
+After=network-online.target
+[Service]
+Type=oneshot
+# Substitute only after checking the real PHP pool user, PHP binary and installed module path.
+User=lqrs
+Group=lqrs
+ExecStart=/usr/bin/php8.4 /home/lqrs/htdocs/lqrs.com/site/modules/Messenger/bin/calls-worker.php /home/lqrs/htdocs/lqrs.com
+TimeoutStartSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+# ProcessWire bootstrapping may write only its site's private runtime/cache, never other sites.
+ReadWritePaths=/home/lqrs/htdocs/lqrs.com/site/assets

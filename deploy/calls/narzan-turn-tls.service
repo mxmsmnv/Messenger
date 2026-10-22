@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Narzan TURN TLS copies from existing managed certificate
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/narzan-calls/refresh-turn-tls.py
+User=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/narzan-calls

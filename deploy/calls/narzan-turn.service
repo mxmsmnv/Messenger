@@ -1,0 +1,23 @@
+[Unit]
+Description=Narzan experimental TURN relay
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=turnserver
+Group=turnserver
+RuntimeDirectory=narzan-turn
+ExecStart=/usr/bin/turnserver -c /etc/narzan-calls/turnserver.conf
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+[Install]
+WantedBy=multi-user.target
