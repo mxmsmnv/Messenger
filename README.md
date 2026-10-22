@@ -7,10 +7,10 @@ Private, safety-aware member messaging for ProcessWire, with Message Requests, m
 Use Messenger when a ProcessWire site needs direct one-to-one conversations without handing trust policy, moderation, or private data to a third-party chat service. The module owns messaging state and safety controls; the site keeps ownership of profiles, matches, connections, page composition, and visual framework assets.
 
 - Author: [Maxim Semenov](https://github.com/mxmsmnv)
-- Website: [smnv.org](https://smnv.org/)
-- Email: `maxim@smnv.org`
+- Website: [narzan.com](https://narzan.com/)
+- Email: `messenger@narzan.com`
 
-If this module saves you time, you can [sponsor the work](https://smnv.org/sponsor/) or use [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
+If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
 ## Features
 
