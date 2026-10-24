@@ -13,6 +13,8 @@ php tests/mobile-domain.php
 php tests/client-policy.php
 php tests/calls.php
 php tests/call-feedback.php
+php tests/message-push.php
+php tests/message-push-provider.php
 php tests/image-albums.php
 php tests/message-info.php
 php tests/member-features.php

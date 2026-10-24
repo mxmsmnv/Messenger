@@ -1,0 +1,65 @@
+<?php declare(strict_types=1);namespace ProcessWire;
+require __DIR__.'/support/bootstrap.php';
+[$m,$db,$a,$b,$outsider]=fixture();
+check(!$m->messagePushReady(),'message push disabled by default');
+check((int)$db->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('messenger_message_devices','messenger_message_pushes')")->fetchColumn()===0,'readiness does not create schema');
+denied(fn()=>$m->installMessagePush($a));
+$admin=new class(1)extends User{public function isSuperuser(){return true;}};
+$m->installMessagePush($admin);$m->installMessagePush($admin);
+$m->wire('config')->messengerPush=['enabled'=>true,'push_ready'=>true];
+check($m->messagePushReady(),'separate operator setup enables ordinary notifications without calls');
+check(!$m->experimentalCallsReady(),'ordinary message push does not enable experimental calls');
+$ga=str_repeat('a',32);$gb=str_repeat('b',32);$gc=str_repeat('c',32);$gd=str_repeat('d',32);
+foreach([$ga=>$a->id,$gb=>$b->id,$gc=>$outsider->id,$gd=>$b->id]as$g=>$id)$db->prepare('INSERT INTO messenger_mobile_grants VALUES(?,?,?,?,NULL)')->execute([$g,$id,'synthetic',time()]);
+$register=fn($user,$grant,$token='synthetic_fcm_message_token_0001',$enabled=true)=>$m->messagePushDevice($user,$grant,'POST',['enabled'=>$enabled,'platform'=>'android','token'=>$token,'sound'=>true]);
+$register($b,$gb);$register($a,$ga,'synthetic_fcm_message_token_0002');
+check(!str_contains((string)$db->query('SELECT token FROM messenger_message_devices LIMIT 1')->fetchColumn(),'synthetic_fcm'),'ordinary message tokens are encrypted at rest');
+denied(fn()=>$register($outsider,$gb));
+try{$register($outsider,$gc,'invalid');throw new \RuntimeException('Expected invalid token');}catch(\InvalidArgumentException $e){check(true,'short tokens rejected');}
+$m->set('first_contact_mode','open');
+$started=$m->startConversation($a,$b,'private body not in push','message_push_start_001');$chat=(int)$started['conversation']['id'];
+check((int)$db->query('SELECT COUNT(*) FROM messenger_message_pushes')->fetchColumn()===1,'only recipient registrations are queued');
+$m->sendMessage($chat,$a,'private body not in push','message_push_start_001');
+check((int)$db->query('SELECT COUNT(*) FROM messenger_message_pushes')->fetchColumn()===1,'replaying a send does not duplicate the outbox');
+$original=$m->services['user'];$m->services['users']=new class($m,$a,$b,$outsider){
+    public function __construct(private $m,private $a,private $b,private $c){}
+    public function get($id){return (int)$id===$this->a->id?$this->a:((int)$id===$this->b->id?$this->b:$this->c);}
+    public function setCurrentUser($user){$this->m->services['user']=$user;}
+};
+$deliveries=[];$send=function(...$args)use(&$deliveries){$deliveries[]=$args;return true;};
+$result=$m->processMessagePushes($admin,$send);
+check($result['sent']===1&&count($deliveries)===1,'worker sends a standard message notification');
+check(count($deliveries[0])===6&&!str_contains(json_encode($deliveries),'private body'),'provider sees metadata only, no message body or sender identity');
+check($m->services['user']===$original,'worker restores its original current user');
+check($m->processMessagePushes($admin,$send)['sent']===0,'successful deliveries are not replayed');
+$i=10;$new=function()use($m,$chat,$a,&$i){return $m->sendMessage($chat,$a,'private follow-up','push_test_'.str_pad((string)++$i,12,'0'));};
+$one=$new();$m->markRead($chat,$b,(int)$one['id']);$before=count($deliveries);
+check($m->processMessagePushes($admin,$send)['discarded']===1&&count($deliveries)===$before,'read messages do not generate stale notifications');
+$one=$new();$m->hideMessage((int)$one['id'],$b);
+check($m->processMessagePushes($admin,$send)['discarded']===1,'recipient-hidden messages are excluded');
+$one=$new();$m->deleteMessage((int)$one['id'],$a);
+check($m->processMessagePushes($admin,$send)['discarded']===1,'deleted messages are excluded');
+$one=$new();$m->setMuted($chat,$b,date('Y-m-d H:i:s',time()+3600));
+check($m->processMessagePushes($admin,$send)['discarded']===1,'mute changes after enqueue are honored');
+$before=(int)$db->query('SELECT COUNT(*) FROM messenger_message_pushes')->fetchColumn();$new();
+check((int)$db->query('SELECT COUNT(*) FROM messenger_message_pushes')->fetchColumn()===$before,'muted recipients are never enqueued');
+$m->setMuted($chat,$b,null);$one=$new();$register($b,$gb,'',false);
+check($m->processMessagePushes($admin,$send)['sent']===0,'turning notifications off cancels pending sends');
+$register($b,$gb);$register($b,$gd);
+check((int)$db->query("SELECT enabled FROM messenger_message_devices WHERE grant_id='$gb'")->fetchColumn()===0,'same native token moves to its new grant instead of notifying two accounts');
+$one=$new();$db->exec("UPDATE messenger_mobile_grants SET revoked_at=1 WHERE id='$gd'");
+check($m->processMessagePushes($admin,$send)['discarded']===1,'revoked grants cannot receive a queued notification');
+$register($b,$gb,'synthetic_fcm_message_token_0003');$one=$new();
+$result=$m->processMessagePushes($admin,fn()=>throw new \RuntimeException('Provider unavailable'));
+check($result['retry']===1,'transient provider failures keep a bounded retry');
+$db->exec("UPDATE messenger_message_pushes SET available_at=0");$before=count($deliveries);
+$result=$m->processMessagePushes($admin,$send);
+check($result['sent']===1&&count($deliveries)===$before+1,'retry is delivered once after recovery');
+check($m->services['user']===$original,'provider failure and recovery preserve worker identity');
+$one=$new();$result=$m->processMessagePushes($admin,fn()=>false);
+check($result['discarded']===1&&(int)$db->query("SELECT enabled FROM messenger_message_devices WHERE grant_id='$gb'")->fetchColumn()===0,'permanently invalid provider registration is disabled');
+$m->wire('config')->messengerPush=['enabled'=>false];
+$db->exec('UPDATE messenger_message_pushes SET created_at=1');
+$m->processMessagePushes($admin,fn()=>throw new \RuntimeException('Must not deliver while disabled'));
+check((int)$db->query('SELECT COUNT(*) FROM messenger_message_pushes')->fetchColumn()===0,'disabled delivery still purges old metadata when worker runs');
+echo 'Message push checks: '.$GLOBALS['checks']."\n";

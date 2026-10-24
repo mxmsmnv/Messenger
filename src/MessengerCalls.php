@@ -80,7 +80,8 @@ trait MessengerCalls {
                 finally {$users->setCurrentUser($previous);}
                 if($call['state']!=='ringing')throw new WirePermissionException('Call no longer ringing.');
                 $token=$this->decryptValue($row['token'],'Messenger|call-device|'.$row['grant_id']);
-                $accepted=$send($row['platform'],$token,$row['call_id']);
+                $name=(string)($caller->get('display_name')?:$caller->get('title')?:$caller->name);
+                $accepted=$send($row['platform'],$token,$row['call_id'],mb_substr(trim((string)preg_replace('/[\\x00-\\x1F\\x7F]/u','',$name)),0,100));
                 if(!$accepted)$this->execute('UPDATE messenger_call_devices SET enabled=0 WHERE grant_id=?',[$row['grant_id']]);
                 $status=$accepted?'sent':'discarded';$result[$status]++;
             }catch(WirePermissionException $e){$status='discarded';$result['discarded']++;}
@@ -148,7 +149,10 @@ trait MessengerCalls {
                 // Lock the conversation to serialize simultaneous calls and retries.
                 if($db->getAttribute(\PDO::ATTR_DRIVER_NAME)!=='sqlite'){$q=$db->prepare('SELECT grant_id FROM messenger_call_devices WHERE user_id IN (?,?) ORDER BY user_id,grant_id FOR UPDATE');$q->execute([(int)$actor->id,$peer]);}
                 $q=$db->prepare('SELECT * FROM messenger_calls WHERE caller_grant=? AND client_id=?');$q->execute([$grant,$client]);$existing=$q->fetch(\PDO::FETCH_ASSOC);if($existing)return $this->callPresentation($existing);
-                $q=$db->prepare("SELECT COUNT(*) FROM messenger_calls WHERE expires_at>? AND state IN ('ringing','active') AND (caller_id IN (?,?) OR callee_id IN (?,?))");$q->execute([time(),(int)$actor->id,$peer,(int)$actor->id,$peer]);if((int)$q->fetchColumn()>0)throw new \InvalidArgumentException('A call is already in progress.');
+                $q=$db->prepare("SELECT COUNT(*) FROM messenger_calls WHERE expires_at>? AND state IN ('ringing','active') AND (caller_id IN (?,?) OR callee_id IN (?,?))");$q->execute([time(),(int)$actor->id,$peer,(int)$actor->id,$peer]);if((int)$q->fetchColumn()>0) {
+                    $own=$db->prepare("SELECT COUNT(*) FROM messenger_calls WHERE expires_at>? AND state IN ('ringing','active') AND (caller_id=? OR callee_id=?)");$own->execute([time(),(int)$actor->id,(int)$actor->id]);
+                    throw new MessengerMobileException((int)$own->fetchColumn()>0?'caller_busy':'peer_busy','A call is already in progress.',409);
+                }
                 $q=$db->prepare('SELECT d.grant_id FROM messenger_call_devices d JOIN messenger_mobile_grants g ON g.id=d.grant_id WHERE d.user_id=? AND d.enabled=1 AND g.revoked_at IS NULL AND d.updated_at>?');$q->execute([$peer,time()-2592000]);$devices=$q->fetchAll(\PDO::FETCH_COLUMN);if(!$devices)throw new WirePermissionException('The other person has not enabled calls.');
                 $h=bin2hex(random_bytes(16));$id=substr($h,0,8).'-'.substr($h,8,4).'-4'.substr($h,13,3).'-'.dechex((hexdec($h[16])&3)|8).substr($h,17,3).'-'.substr($h,20);
                 $this->execute("INSERT INTO messenger_calls(id,client_id,conversation_id,caller_id,callee_id,caller_grant,state,sequence,created_at,expires_at) VALUES(?,?,?,?,?,?,'ringing',0,?,?)",[$id,$client,(int)$chat['id'],(int)$actor->id,$peer,$grant,time(),time()+45]);

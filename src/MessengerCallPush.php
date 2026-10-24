@@ -33,8 +33,9 @@ final class MessengerCallPush {
         $values=[];for($i=0;$i<2;$i++){if(!isset($der[$offset+1])||ord($der[$offset])!==2)throw new \RuntimeException('Invalid signing result.');$length=ord($der[$offset+1]);$offset+=2;$value=ltrim(substr($der,$offset,$length),"\0");$offset+=$length;if(strlen($value)>32)throw new \RuntimeException('Invalid signing result.');$values[]=str_pad($value,32,"\0",STR_PAD_LEFT);}
         return implode('',$values);
     }
-    public function send(string $platform,string $token,string $callId):bool {
-        $payload=['kind'=>'call','call_id'=>$callId,'caller'=>'Narzan'];
+    public function send(string $platform,string $token,string $callId,string $caller="Narzan"):bool {
+        $name=mb_substr(trim((string)preg_replace('/[\\x00-\\x1F\\x7F]/u','',$caller)),0,100);
+        $payload=['kind'=>'call','call_id'=>$callId,'caller'=>$name!==''?$name:'Narzan'];
         if($platform==='android') {
             $project=(string)($this->config['firebase_project']??'');if(!preg_match('/^[a-z][a-z0-9-]{4,62}$/D',$project))throw new \RuntimeException('Firebase project unavailable.');
             [$status]=$this->post('https://fcm.googleapis.com/v1/projects/'.$project.'/messages:send',['Authorization: Bearer '.$this->firebaseAccess(),'Content-Type: application/json'],json_encode(['message'=>['token'=>$token,'data'=>$payload,'android'=>['priority'=>'HIGH','ttl'=>'45s','collapse_key'=>$callId]]],JSON_THROW_ON_ERROR));
@@ -53,4 +54,33 @@ final class MessengerCallPush {
         if(in_array($status,[404,410],true))return false;
         throw new \RuntimeException('Push provider rejected delivery.');
     }
+    /** Standard notification tokens/topics only. Never send an ordinary message via VoIP. */
+    public function sendMessage(string $platform,string $token,int $messageId,int $chatId,string $account,bool $sound):bool {
+        if($messageId<1||$chatId<1||$account===''||strlen($account)>2048)throw new \InvalidArgumentException('Invalid message push.');
+        $payload=['kind'=>'message','narzan_message_id'=>(string)$messageId,'narzan_chat_id'=>(string)$chatId,'narzan_account'=>$account];
+        $collapse=substr(hash('sha256',$account.'|'.$chatId),0,64);
+        if($platform==='android') {
+            $project=(string)($this->config['firebase_project']??'');if(!preg_match('/^[a-z][a-z0-9-]{4,62}$/D',$project))throw new \RuntimeException('Firebase project unavailable.');
+            [$status,$response]=$this->post('https://fcm.googleapis.com/v1/projects/'.$project.'/messages:send',['Authorization: Bearer '.$this->firebaseAccess(),'Content-Type: application/json'],json_encode(['message'=>['token'=>$token,'data'=>$payload,'android'=>['priority'=>'HIGH','ttl'=>'86400s']]],JSON_THROW_ON_ERROR));
+        }elseif($platform==='ios') {
+            if(!preg_match('/^(sandbox|production):([a-f0-9]{64,200})$/D',$token,$registration))throw new \RuntimeException('Invalid Apple message registration.');
+            $key=(string)($this->config['apns_key_id']??'');$team=(string)($this->config['apns_team_id']??'');
+            if(!preg_match('/^[A-Z0-9]{10}$/D',$key)||!preg_match('/^[A-Z0-9]{10}$/D',$team))throw new \RuntimeException('Apple push configuration unavailable.');
+            $jwt=$this->b64(json_encode(['alg'=>'ES256','kid'=>$key],JSON_THROW_ON_ERROR)).'.'.$this->b64(json_encode(['iss'=>$team,'iat'=>time()],JSON_THROW_ON_ERROR));
+            if(!openssl_sign($jwt,$signature,openssl_pkey_get_private($this->keyFile((string)($this->config['apns_private_key']??''))),OPENSSL_ALGO_SHA256))throw new \RuntimeException('Apple signing failed.');
+            $jwt.='.'.$this->b64(self::rawEs256($signature));
+            $topic=(string)($this->config['apns_bundle_id']??'org.smnv.narzan.dev');if(!preg_match('/^[a-zA-Z0-9.-]+$/D',$topic))throw new \RuntimeException('Invalid Apple push topic.');
+            $host=$registration[1]==='sandbox'?'api.sandbox.push.apple.com':'api.push.apple.com';
+            $aps=['alert'=>['title'=>'Narzan','body'=>'New message'],'thread-id'=>$collapse];if($sound)$aps['sound']='default';
+            [$status,$response]=$this->post('https://'.$host.'/3/device/'.$registration[2],['authorization: bearer '.$jwt,'apns-topic: '.$topic,'apns-push-type: alert','apns-priority: 10','apns-expiration: '.(time()+86400),'apns-collapse-id: '.$collapse,'content-type: application/json'],json_encode(['aps'=>$aps]+$payload,JSON_THROW_ON_ERROR),true);
+        }else throw new \RuntimeException('Unsupported message push platform.');
+        if($status>=200&&$status<300)return true;
+        if($platform==='ios'&&$status===410)return false;
+        if($platform==='android'&&$status===404) {
+            $error=json_decode($response,true);
+            foreach(($error['error']['details']??[])as$detail)if(is_array($detail)&&($detail['errorCode']??null)==='UNREGISTERED')return false;
+        }
+        throw new \RuntimeException('Message push provider rejected delivery.');
+    }
+
 }

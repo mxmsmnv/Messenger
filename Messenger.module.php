@@ -1,6 +1,7 @@
 <?php namespace ProcessWire;
 
 require_once __DIR__ . '/src/MessengerCalls.php';
+require_once __DIR__ . '/src/MessengerMessagePush.php';
 require_once __DIR__ . '/src/MessengerBroadcasts.php';
 require_once __DIR__ . '/src/MessengerMobileAuth.php';
 require_once __DIR__ . '/src/MessengerMemberFeatures.php';
@@ -13,11 +14,12 @@ require_once __DIR__ . '/src/MessengerWireWallIntegration.php';
 class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerBroadcasts;
 	use MessengerCalls;
+	use MessengerMessagePush;
 	use MessengerMemberFeatures;
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 151;
+	public const VERSION = 152;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -41,7 +43,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 151,
+			'version' => 152,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -863,6 +865,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$stmt->execute([$conversationId,(int)$actor->id,$clientId,$this->encryptValue($body,$this->messageAad($message)),$this->contentFingerprint($requestBody??$body),$now,$expiresAt]); $id=(int)$this->wire('database')->lastInsertId();
 		$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET last_message_id=?,last_message_at=?,updated_at=? WHERE id=?',[$id,$now,$now,$conversationId]);
 		$this->execute('UPDATE messenger_participants SET archived_at=NULL,hidden_before=NULL WHERE conversation_id=? AND hidden_before IS NOT NULL AND hidden_through_message_id<?',[$conversationId,$id]);
+		$this->queueMessagePush($conversationId,$id,(int)$actor->id);
 		return $this->memberMessagePresentation(['id'=>$id,'conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'body'=>$body,'moderation_state'=>'visible','created_at'=>$now,'edited_at'=>null,'deleted_at'=>null,'expires_at'=>$expiresAt],$actor);
 	}
 

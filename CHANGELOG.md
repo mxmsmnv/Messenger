@@ -2,6 +2,14 @@
 
 All notable changes to Messenger are documented by release date, with versions listed newest first within each day. Git history is preserved.
 
+## 2026-10-24
+
+### [1.5.2] — development candidate, not installed
+
+- Add explicitly installed ordinary-message push registrations/outbox and a separate bounded worker. Use standard APNs alert/FCM, encrypted device tokens, authenticated grant ownership, dispatch-time read/mute/block/deletion checks and generic metadata-only alerts; experimental calls stay independent. Disabled and absent-schema sites retain their existing behavior.
+- Carry the authenticated caller display name through the existing push worker/provider, so CallKit receives the actual name before the foreground chat fetch. Keep the call provider callback compatible with existing three-argument senders.
+- Return explicit `peer_busy` or `caller_busy` (HTTP409) for native call start conflicts, after normal accepted-conversation and device/grant checks. Keep the ordinary web client and existing call retry IDs unchanged.
+
 ## 2026-10-22
 
 ### [1.5.1]

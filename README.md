@@ -26,6 +26,7 @@ If this module saves you time, you can support it through [GitHub Sponsors](http
 - Separate permissions for moderation, evidence viewing, administration, export, and deletion boundaries.
 - Same-origin JSON API with ProcessWire sessions, CSRF validation, private headers, and no CORS opt-in.
 - Experimental opt-in native audio-call signaling with device ownership and private, consented call-quality reports; requires explicit operator schema and infrastructure setup.
+- Operator-installed ordinary-message push queue with encrypted standard APNs/FCM registrations, private generic alerts and dispatch-time membership/mute/read/session checks (1.5.2 development candidate, disabled by default).
 - Optional Narzan native authentication with browser consent, S256 PKCE, short-lived bearer tokens and per-device revocation; disabled by default.
 - XChaCha20-Poly1305 authenticated encryption at rest for messages and report content.
 - Selectable WireMail provider and preview-first local notification worker.

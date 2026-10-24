@@ -19,7 +19,12 @@ $start=fn($actor,$grant,$client='client_call_00000001')=>$m->experimentalCallReq
 denied(fn()=>$start($a,$ga));$m->acceptRequest($chat,$b);
 $call=$start($a,$ga);check($call['state']==='ringing','accepted chat can start ringing');
 check($start($a,$ga)['id']===$call['id'],'call start retry is idempotent');
+try{$start($a,$ga,'busy_caller_00000001');throw new \RuntimeException('Expected busy caller');}catch(MessengerMobileException $e){check($e->apiCode==='caller_busy'&&$e->httpStatus===409,'a different device call reports own busy state without a duplicate call');}
+
 check((int)$db->query('SELECT COUNT(*) FROM messenger_call_pushes')->fetchColumn()===2,'both opted-in recipient devices receive queued invitations');
+$other=$m->startConversation($outsider,$b,'another accepted peer','other_call_message_01');$otherChat=(int)$other['conversation']['id'];$m->acceptRequest($otherChat,$b);
+try{$m->experimentalCallRequest($outsider,$gc,'call-start','POST',['conversation_id'=>$otherChat,'client_id'=>'busy_peer_0000000001'],[]);throw new \RuntimeException('Expected busy peer');}catch(MessengerMobileException $e){check($e->apiCode==='peer_busy'&&$e->httpStatus===409,'engaged peer reports busy without disclosing another call');}
+
 // Real ProcessWire users are logged in only when they match the current wire user.
 $originalUser=$m->services['user'];$GLOBALS['calls_current_user']=0;
 $workerCaller=new class($a->id,$a->name)extends User {public function isLoggedin(){return empty($GLOBALS['calls_deny_caller'])&&$this->id===($GLOBALS['calls_current_user']??0);}};
@@ -30,8 +35,9 @@ $m->services['users']=new class($m,$workerCaller,$b) {
 };
 $m->services['user']=new User(0);
 check(!$workerCaller->isLoggedin(),'background caller is not the CLI current user');
-$delivered=[];$delivery=$m->processExperimentalCallPushes($admin,function($platform,$token,$id)use(&$delivered){$delivered[]=$id;return true;});
+$delivered=[];$presented=[];$delivery=$m->processExperimentalCallPushes($admin,function($platform,$token,$id,$name)use(&$delivered,&$presented){$delivered[]=$id;$presented[]=$name;return true;});
 check($delivery['sent']===2&&count($delivered)===2,'bounded worker delivers opted-in registered devices');
+check($presented===[$a->name,$a->name],'system call invitation uses authenticated caller name on every device');
 check($m->services['user']->id===0&&$GLOBALS['calls_current_user']===0,'worker restores guest context after successful caller authorization');
 $m->services['users']->setCurrentUser($originalUser);
 check($m->processExperimentalCallPushes($admin,fn()=>true)['sent']===0,'delivered pushes are not sent again');

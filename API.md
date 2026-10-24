@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.1 (ProcessWire module version `151`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.2 (ProcessWire module version `152`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -359,3 +359,29 @@ operator-scheduled maintenance for timely physical removal; no timer is installe
 or enabled automatically. Site backups have the operator's separate retention.
 Call/signaling records keep their existing one-day cleanup; the feedback is
 independent and cannot restore a call. Uninstall continues retaining tables.
+
+
+## Ordinary native message notifications — 1.5.2 development candidate
+
+`installMessagePush(User $administrator)` is an **explicit** operator migration.
+`messagePushReady(): bool` checks configuration and schema without creating them.
+`POST /messenger-api/v1/message-push-device/` requires a cookie-free native bearer
+grant and `enabled`/`sound` booleans, `platform` (`ios`/`android`) and `token`.
+Tokens are encrypted at rest, never returned or logged. A token is bound to one
+current grant; user/device revocation, mute, read state, hidden/deleted/expired
+messages and blocks are rechecked before dispatch. Registration cannot select a
+user or conversation. Discovery advertises `message_push` only when ready.
+
+`processMessagePushes(User $administrator, callable $send, int $limit=20)` drains
+at most20eligible entries, with five bounded attempts and seven-day outbox
+retention. A provider callback receives `(platform, token, messageId, chatId,
+accountKey, sound)`; only identifiers and a generic alert reach APNs/FCM, never
+message bodies/sender names. Ordinary iOS tokens are distinct from PushKit tokens;
+the topic is the app bundle, push type `alert`, never `.voip`.
+
+Run `bin/message-push-worker.php /absolute/site/root` only after verified backup,
+operator approval and private `$config->messengerPush` setup (`enabled`,
+`push_ready`, `worker_user_id`, and the same provider credential-path fields
+used by the existing call sender). No worker or site upgrade is installed by
+this source change. Android OS force-stop can prevent FCM delivery; do not
+promise delivery in that state. OS notification/Focus settings remain controlling.
