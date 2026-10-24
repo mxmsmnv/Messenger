@@ -1,0 +1,65 @@
+<?php declare(strict_types=1); namespace ProcessWire;
+require __DIR__.'/support/bootstrap.php';
+[$m,$db,$a,$b,$c]=fixture();
+$operator=new class(99) extends User {public function isSuperuser(){return true;}};
+check(!$m->groupsReady(),'groups absent by default');
+check((int)$db->query("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'messenger_group%'")->fetchColumn()===0,'feature detection creates no tables');
+denied(fn()=>$m->installGroups($a));$m->installGroups($operator);check(!$m->groupsReady(),'schema does not enable groups');$m->set('groups_enabled',1);check($m->groupsReady(),'operator schema and explicit opt-in');
+$m->set('first_contact_mode','requests');
+$g=$m->createGroup($a,'Weekend plans',[$b->id,$c->id],'group_fixture_create_01');$id=$g['id'];
+check($g['type']==='group'&&$g['role']==='owner'&&count($g['members'])===1,'owner creates group without forced membership');
+check($m->createGroup($a,'Weekend plans',[$c->id,$b->id],'group_fixture_create_01')['id']===$id,'creation retry order independent');
+denied(fn()=>$m->createGroup($a,'Changed',[$b->id,$c->id],'group_fixture_create_01'),'idempotency_conflict');
+check($m->conversation($id,$b)===[]&&count($m->groupInvitations($b))===1,'invitation has no history access');
+check(count($m->conversationsForUser($a)['items'])===0,'legacy inbox excludes groups');
+check(count($m->conversationsForUser($a,'inbox',null,30,true)['items'])===1,'opted-in inbox displays empty group');
+$before=$m->sendMessage($id,$a,'Before joining','group_before_join_01');
+denied(fn()=>$m->conversationMessages($id,$b));
+$joined=$m->respondGroupInvitation($id,$b,true);check(count($joined['members'])===2&&$m->conversationMessages($id,$b)===[],'new member has no earlier history');
+$m->respondGroupInvitation($id,$c,true);
+$text=$m->sendMessage($id,$b,'Hello everyone','group_text_send_0001');
+check(count($m->conversationMessages($id,$c))===1,'third participant receives only authorized messages');
+check($m->conversationMessages($id,$a)[1]['sender']['id']===$b->id,'group messages identify author');
+check($m->conversationMessages($id,$a)[0]['read_by_all']===false,'new members cannot mark inaccessible earlier messages as read');
+check($m->messageInfo($text['id'],$b)['recipient_count']===2,'group receipts count current audience');
+$m->markRead($id,$c,$text['id']);check($m->messageInfo($text['id'],$b)['read_count']===1,'one reader is not all readers');
+$m->markRead($id,$a,$text['id']);check($m->messageInfo($text['id'],$b)['is_read'],'all eligible recipients read');
+check(str_starts_with($db->query('SELECT title FROM messenger_groups')->fetchColumn(),'menc:v1:'),'group name encrypted at rest');
+check(!str_contains($db->query('SELECT metadata FROM messenger_audit ORDER BY id DESC LIMIT 1')->fetchColumn(),'Hello everyone'),'no message body in audit');
+foreach(['rename','invite','remove','role','transfer','delete']as$action)denied(fn()=>$m->changeGroup($id,$b,$action,['title'=>'Unauthorized','user_ids'=>[44],'user_id'=>$a->id,'role'=>'admin']));
+$m->changeGroup($id,$a,'role',['user_id'=>$b->id,'role'=>'admin']);
+$m->changeGroup($id,$b,'rename',['title'=>'Autumn weekend']);check($m->conversation($id,$c)['other_user']['title']==='Autumn weekend','administrator rename visible to all');
+denied(fn()=>$m->changeGroup($id,$b,'remove',['user_id'=>$a->id]));
+denied(fn()=>$m->changeGroup($id,$a,'leave',[]));
+$input=['filename'=>'notes.txt','mime_type'=>'text/plain','kind'=>'file','data_base64'=>base64_encode('Group private attachment')];
+$file=$m->sendAttachment($id,$a,$input,'group_attachment_001');check($m->attachment($c,$file['attachment']['id'])['data_base64']===$input['data_base64'],'authorized group attachment');
+$m->changeGroup($id,$b,'remove',['user_id'=>$c->id]);
+check($m->conversation($id,$c)===[],'removed member has no conversation');
+denied(fn()=>$m->conversationMessages($id,$c));denied(fn()=>$m->sendMessage($id,$c,'Removed user','group_removed_send01'));denied(fn()=>$m->attachment($c,$file['attachment']['id']));denied(fn()=>$m->messageInfo($text['id'],$c));
+$m->changeGroup($id,$b,'invite',['user_ids'=>[$c->id]]);$m->respondGroupInvitation($id,$c,true);check($m->conversationMessages($id,$c)===[],'rejoining does not restore old history');denied(fn()=>$m->attachment($c,$file['attachment']['id']));
+$m->changeGroup($id,$a,'transfer',['user_id'=>$b->id]);check($m->groupDetails($id,$b)['owner_id']===$b->id,'ownership transferred');
+check($m->createGroup($a,'Weekend plans',[$b->id,$c->id],'group_fixture_create_01')['id']===$id,'original create identity survives ownership transfer');
+denied(fn()=>$m->changeGroup($id,$a,'delete',[]));
+$m->changeGroup($id,$a,'leave',[]);denied(fn()=>$m->editMessage($before['id'],$a,'Late edit'));
+$m->changeGroup($id,$b,'delete',[]);check($m->conversation($id,$b)===[],'deleted group no longer readable');denied(fn()=>$m->editMessage($text['id'],$b,'Late edit'));denied(fn()=>$m->attachment($b,$file['attachment']['id']));
+[$m,$db,$a,$b,$c]=fixture();$m->installGroups($operator);$m->set('groups_enabled',1)->set('first_contact_mode','closed');denied(fn()=>$m->createGroup($a,'Closed',[$b->id],'group_closed_policy01'));check((int)$db->query('SELECT COUNT(*) FROM messenger_groups')->fetchColumn()===0,'denied creation rolls back everything');
+$m->set('first_contact_mode','requests');$g=$m->createGroup($a,'Invite',[$b->id],'group_expiring_00001');$id=$g['id'];$db->exec('INSERT INTO messenger_blocks VALUES(11,22)');check($m->groupInvitations($b)===[],'blocked inviter not shown');denied(fn()=>$m->respondGroupInvitation($id,$b,true));$db->exec('DELETE FROM messenger_blocks');$db->exec('UPDATE messenger_group_invites SET expires_at=1');denied(fn()=>$m->respondGroupInvitation($id,$b,true));
+$m->changeGroup($id,$a,'invite',['user_ids'=>[$b->id]]);$m->respondGroupInvitation($id,$b,true);$db->exec('INSERT INTO messenger_blocks VALUES(11,22)');denied(fn()=>$m->sendMessage($id,$a,'Blocked','group_blocked_send01'));$db->exec('DELETE FROM messenger_blocks');
+$m->set('groups_enabled',0);check($m->conversation($id,$a)===[],'disabled groups fail closed');denied(fn()=>$m->sendMessage($id,$a,'Disabled','group_disabled_send1'));
+// Deliberately fail the audit write: schema/members/invitations must remain unchanged.
+[$m,$db,$a,$b,$c]=fixture();$m->installGroups($operator);$m->set('groups_enabled',1);$db->exec("CREATE TRIGGER reject_group_audit BEFORE INSERT ON messenger_audit BEGIN SELECT RAISE(ABORT,'fixture'); END");try{$m->createGroup($a,'Atomic',[$b->id],'group_atomic_create1');throw new \RuntimeException('Expected rollback');}catch(\PDOException $e){check((int)$db->query('SELECT COUNT(*) FROM messenger_conversations')->fetchColumn()===0&&(int)$db->query('SELECT COUNT(*) FROM messenger_group_invites')->fetchColumn()===0,'group and invites roll back together');}
+// Encrypted group photo, member authorization, and retirement of private history.
+[$m,$db,$a,$b,$c]=fixture();$m->installGroups($operator);$m->set('groups_enabled',1);$g=$m->createGroup($a,'Photos',[$b->id,$c->id],'group_photo_create01');$id=$g['id'];
+$chunk=static fn($type,$data)=>pack('N',strlen($data)).$type.$data.pack('N',crc32($type.$data));
+$png="\x89PNG\r\n\x1A\n".$chunk('IHDR',pack('NNCCCCC',1,1,8,2,0,0,0)).$chunk('IDAT',gzcompress("\0\xff\0\0")).$chunk('IEND','');
+$avatar=['kind'=>'file','filename'=>'group.png','mime_type'=>'image/png','data_base64'=>base64_encode($png)];
+$m->changeGroup($id,$a,'avatar',['avatar'=>$avatar]);check($m->conversation($id,$a)['has_avatar']&&$m->conversation($id,$a)['avatar_version']===1,'group photo advertised without bytes and with its own revision');$revision=$m->conversation($id,$a)['avatar_version'];$m->changeGroup($id,$a,'rename',['title'=>'Same photo']);check($m->conversation($id,$a)['avatar_version']===$revision,'renaming does not invalidate avatar bytes');check(str_starts_with($db->query('SELECT avatar FROM messenger_groups')->fetchColumn(),'menc:v1:'),'photo encrypted at rest');denied(fn()=>$m->groupAvatar($id,$b));$m->respondGroupInvitation($id,$b,true);check($m->groupAvatar($id,$b)['data_base64']===$avatar['data_base64'],'joined member can load photo');
+try{$m->changeGroup($id,$a,'avatar',['avatar'=>['kind'=>'file','filename'=>'active.svg','mime_type'=>'image/svg+xml','data_base64'=>base64_encode('<svg></svg>')]]);throw new \RuntimeException('Expected rejection');}catch(\InvalidArgumentException $e){check(true,'active image cannot become group avatar');}
+$m->changeGroup($id,$a,'avatar',['avatar'=>null]);check($m->groupAvatar($id,$b)===null,'explicit photo removal');
+$m->sendMessage($id,$a,'Hidden from newcomers','group_search_before1');$m->respondGroupInvitation($id,$c,true);check($m->searchMessages($c,'Hidden',30,true)===[],'search respects join floor');check($m->searchMessages($a,'Hidden')===[],'legacy search excludes group messages');check(count($m->searchMessages($a,'Hidden',30,true))===1,'opted-in group search');
+$m->changeGroup($id,$a,'delete',[]);check($m->searchMessages($a,'Hidden',30,true)===[],'deleted group cannot leak through search');
+// A group cannot multiply the site's new-recipient allowance or edit around a block.
+[$m,$db,$a,$b,$c]=fixture();$m->installGroups($operator);$m->set('groups_enabled',1)->set('max_new_recipients_day',1);
+denied(fn()=>$m->createGroup($a,'Rate limit',[$b->id,$c->id],'group_invite_limit01'),'rate_limited');check((int)$db->query('SELECT COUNT(*) FROM messenger_conversations')->fetchColumn()===0,'invite rate failure rolls back the whole group');
+$m->set('max_new_recipients_day',20);$g=$m->createGroup($a,'Blocked edit',[$b->id],'group_blocked_edit01');$m->respondGroupInvitation($g['id'],$b,true);$message=$m->sendMessage($g['id'],$a,'Before blocking','group_blocked_edit02');$db->exec('INSERT INTO messenger_blocks VALUES(11,22)');denied(fn()=>$m->editMessage($message['id'],$a,'Cannot bypass block'));
+echo 'Group checks: '.$GLOBALS['checks'].PHP_EOL;

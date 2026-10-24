@@ -14,7 +14,8 @@ $rest=new MessengerRestApi($m);$rest->services=&$m->services;
 $_SERVER=['HTTPS'=>'on','REQUEST_METHOD'=>'GET','HTTP_HOST'=>'example.test'];
 $browser=json_decode($rest->handle('v1','session'),true);check($browser['ok']&&isset($browser['result']['csrf']),'browser session still supplies CSRF');check($csrf->calls===1,'web CSRF requested');
 check($browser['result']['name']==='own-login'&&$browser['result']['title']==='Own Display Name','browser own login/display label additive');
-check(array_diff(array_keys($browser['result']),['is_login','user_id','can_use','can_moderate','csrf','name','title'])===[],'profile exposes no email or credential fields');
+check(array_diff(array_keys($browser['result']),['is_login','user_id','can_use','can_moderate','csrf','name','title','groups_supported'])===[],'profile exposes no email or credential fields');
+$_SERVER['HTTP_X_MESSENGER_ACTOR']=(string)$b->id;$mismatch=json_decode($rest->handle('v1','session'),true);check(!$mismatch['ok']&&!isset($mismatch['result']),'stale browser actor cannot read or write as a different session');unset($_SERVER['HTTP_X_MESSENGER_ACTOR']);
 $input->query=['user_id'=>$b->id];$self=json_decode($rest->handle('v1','session'),true);check($self['result']['name']==='own-login','session target query cannot read another profile');$input->query=[];
 $_SERVER['HTTP_AUTHORIZATION']='Basic synthetic-proxy-credential';$proxy=json_decode($rest->handle('v1','session'),true);check($proxy['ok']&&isset($proxy['result']['csrf']),'upstream browser authentication does not become native auth');unset($_SERVER['HTTP_AUTHORIZATION']);
 // Exercise actual CSRF validator with parsed JSON-shaped body, not a duplicate implementation.

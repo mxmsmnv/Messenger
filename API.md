@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.2 (ProcessWire module version `152`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.3 (ProcessWire module version `153`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -361,7 +361,7 @@ Call/signaling records keep their existing one-day cleanup; the feedback is
 independent and cannot restore a call. Uninstall continues retaining tables.
 
 
-## Ordinary native message notifications — 1.5.2 development candidate
+## Ordinary native message notifications — 1.5.3 development candidate
 
 `installMessagePush(User $administrator)` is an **explicit** operator migration.
 `messagePushReady(): bool` checks configuration and schema without creating them.
@@ -385,3 +385,7 @@ operator approval and private `$config->messengerPush` setup (`enabled`,
 used by the existing call sender). No worker or site upgrade is installed by
 this source change. Android OS force-stop can prevent FCM delivery; do not
 promise delivery in that state. OS notification/Focus settings remain controlling.
+
+## Opt-in group conversations
+
+Messenger1.5.3 adds the explicitly installed group core. See [group API, permissions and verification boundaries](docs/GROUPS.md). Existing inbox/search callers stay direct-only unless they request `include_groups=1`; discovery only advertises `groups` after operator activation and schema readiness. New group messages use the existing authorization/encryption/media transport; group calls and end-to-end encryption are not implied.

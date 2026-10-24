@@ -62,4 +62,9 @@ $m->wire('config')->messengerPush=['enabled'=>false];
 $db->exec('UPDATE messenger_message_pushes SET created_at=1');
 $m->processMessagePushes($admin,fn()=>throw new \RuntimeException('Must not deliver while disabled'));
 check((int)$db->query('SELECT COUNT(*) FROM messenger_message_pushes')->fetchColumn()===0,'disabled delivery still purges old metadata when worker runs');
+// Removed group members are excluded again at dispatch, not only when queued.
+[$m,$db,$a,$b,$outsider]=fixture();$m->installGroups($admin);$m->set('groups_enabled',1);$m->installMessagePush($admin);$m->wire('config')->messengerPush=['enabled'=>true,'push_ready'=>true];
+$grant=str_repeat('9',32);$db->prepare('INSERT INTO messenger_mobile_grants VALUES(?,?,?,?,NULL)')->execute([$grant,$b->id,'synthetic',time()]);$m->messagePushDevice($b,$grant,'POST',['enabled'=>true,'platform'=>'android','token'=>'synthetic_group_message_token_01','sound'=>true]);
+$group=$m->createGroup($a,'Private group',[$b->id],'group_push_create01');$m->respondGroupInvitation($group['id'],$b,true);$m->sendMessage($group['id'],$a,'Group message','group_push_message1');check((int)$db->query('SELECT COUNT(*) FROM messenger_message_pushes')->fetchColumn()===1,'group message queues recipient push');
+$m->changeGroup($group['id'],$a,'remove',['user_id'=>$b->id]);$deliveries=0;$result=$m->processMessagePushes($admin,function()use(&$deliveries){$deliveries++;return true;});check($deliveries===0&&$result['discarded']===1,'removal revokes already queued group push');
 echo 'Message push checks: '.$GLOBALS['checks']."\n";

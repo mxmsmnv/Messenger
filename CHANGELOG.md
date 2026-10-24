@@ -4,6 +4,13 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-24
 
+### [1.5.3] — development candidate, not installed
+
+- Add explicitly installed, opt-in group conversations, encrypted group names/photos, accepted invitations, owner/admin/member permissions and transfer, leave/removal and group deletion. New and returning members see only messages sent after joining; removed members lose API/file/push access.
+- Keep direct-conversation identity and legacy inboxes intact; new clients explicitly request groups. Add group management to the web client through the existing framework/CSRF boundary.
+- Preserve ordinary-message push independence and recheck sender eligibility before dispatch. Group calls remain unavailable; no video/group-call claim.
+- Keep patch upgrades through153 non-migrating; groups and ordinary push have separate administrative schema gates. No website was updated by this source change.
+
 ### [1.5.2] — development candidate, not installed
 
 - Add explicitly installed ordinary-message push registrations/outbox and a separate bounded worker. Use standard APNs alert/FCM, encrypted device tokens, authenticated grant ownership, dispatch-time read/mute/block/deletion checks and generic metadata-only alerts; experimental calls stay independent. Disabled and absent-schema sites retain their existing behavior.

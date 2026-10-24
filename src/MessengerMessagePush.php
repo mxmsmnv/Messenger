@@ -69,6 +69,7 @@ trait MessengerMessagePush {
                     $messages=$this->conversationMessages((int)$row['conversation_id'],$recipient,(int)$row['message_id']+1,(int)$row['message_id']-1,1);
                     $message=$messages[0]??null;
                     if(!$message||(int)$message['id']!==(int)$row['message_id']||!empty($message['deleted_at'])||(int)$message['sender_user_id']===(int)$recipient->id)throw new WirePermissionException('Message unavailable.');
+                    if($this->isBlockedEitherWay((int)$message['sender_user_id'],(int)$recipient->id)||!$this->canReceive($this->wire('users')->get((int)$message['sender_user_id'])))throw new WirePermissionException('Message unavailable.');
                     $discovery=(new MessengerMobileAuth($this))->discovery();
                     $account=$discovery['issuer'].'#'.$discovery['site_id'].'#'.(int)$recipient->id;
                 }finally{$this->wire('users')->setCurrentUser($previous);}

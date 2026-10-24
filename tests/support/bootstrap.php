@@ -30,8 +30,9 @@ function fixture():array {
  'messenger_notification_outbox'=>'id INTEGER PRIMARY KEY,message_id INT,conversation_id INT,recipient_user_id INT,status TEXT,processed_at TEXT',
  'messenger_audit'=>'id INTEGER PRIMARY KEY,actor_user_id INT,action TEXT,conversation_id INT,message_id INT,metadata TEXT,created_at TEXT'];
  foreach($ddl as $t=>$cols)$db->exec("CREATE TABLE IF NOT EXISTS $t ($cols)");
- $users=new class {public function get($id){return new User((int)$id,'fixture-'.$id);}};
+ $users=new class {public ?object $owner=null;public function get($id){return new User((int)$id,'fixture-'.$id);}public function setCurrentUser($user){if($this->owner)$this->owner->services['user']=$user;}};
  $m=new AuditMessenger();$m->services=['database'=>$db,'users'=>$users,'user'=>new User(11),'config'=>new class {public string $tableSalt='synthetic-audit-only'; public bool $https=true; public array $httpHosts=[]; public array $messengerCalls=[]; public array $messengerPush=[]; public object $urls; public function __construct(){$this->urls=(object)['root'=>'/'];} public function get($key){return null;}}];
+ $users->owner=$m;
  $m->set('mobile_enabled',1)->set('mobile_origin','https://example.test')->set('mobile_redirect_uris','org.example.narzan://callback');
  MessengerMobileAuth::install($db);
  $install=new \ReflectionMethod($m,'installMemberFeatures');$install->invoke($m);$settings=new \ReflectionMethod($m,'installConversationSettings');$settings->invoke($m);

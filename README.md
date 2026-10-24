@@ -135,3 +135,7 @@ Retention settings describe policy only. Permanent purge, anonymization, export,
 ## License
 
 [MIT](LICENSE) © 2026 Maxim Semenov.
+
+## Opt-in group development candidate
+
+The1.5.3 source candidate adds group invitations, membership/roles, names/photos and compatible mobile/web management. It requires an explicit operator migration and activation; no live installation is implied. See [group contract and remaining acceptance](docs/GROUPS.md). Group links, polls, events, AI and group calls remain separate backlog stages.

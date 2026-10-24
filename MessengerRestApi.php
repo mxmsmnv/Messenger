@@ -28,6 +28,8 @@ final class MessengerRestApi extends Wire {
 				$this->wire()->users->setCurrentUser($actor);
 				$auth->rateLimit($method === 'GET' ? 'reads' : 'writes', (string)$actor->id, $method === 'GET' ? 180 : 60);
 			}
+			$expectedActor=$_SERVER['HTTP_X_MESSENGER_ACTOR']??'';
+			if($expectedActor!==''&&(!is_string($expectedActor)||!preg_match('/^[1-9][0-9]{0,18}$/D',$expectedActor)||(string)(int)$expectedActor!==$expectedActor||!$actor instanceof User||(int)$actor->id!==(int)$expectedActor))throw new WirePermissionException('Account changed. Reload Messenger.');
 			if($resource === 'session') { $this->allow($method, ['GET']); return $this->sessionResponse($actor, $native); }
 			if(!$actor instanceof User || !$this->messenger->canUse($actor)) throw new WirePermissionException('Messenger access denied.');
 			if(!$native) $this->rateLimit($method !== 'GET');
@@ -43,6 +45,7 @@ final class MessengerRestApi extends Wire {
                 $result=$this->messenger->experimentalCallRequest($actor,$auth->authenticatedGrant($authorization),$resource,$method,$body,['id'=>$this->wire()->input->get('id'),'after'=>$this->wire()->input->get('after')]);
                 return $this->response(200,$result);
             }
+			if(str_starts_with($resource,'group-'))return $this->response(200,$this->messenger->groupRequest($actor,$resource,$method,$body,['id'=>$this->wire()->input->get('id')]));
 			switch($resource) {
 				case 'client-policy':
 					$this->allow($method,['GET']);$result=$this->messenger->clientPolicy($actor);break;
@@ -88,7 +91,7 @@ final class MessengerRestApi extends Wire {
 					$this->allow($method, ['GET']);
 					$scope = (string)$this->wire()->input->get('scope');
 					$before = trim((string)$this->wire()->input->get('before')) ?: null;
-					$result = $this->messenger->conversationsForUser($actor, $scope, $before, $this->queryInt('limit', 30, 100));
+					$result = $this->messenger->conversationsForUser($actor, $scope, $before, $this->queryInt('limit', 30, 100), (string)$this->wire()->input->get('include_groups')==='1');
 					break;
 				case 'conversation':
 					$this->allow($method, ['GET']);
@@ -107,7 +110,7 @@ final class MessengerRestApi extends Wire {
 					break;
 				case 'search':
 					$this->allow($method, ['GET']);
-					$result = $this->messenger->searchMessages($actor, (string)$this->wire()->input->get('q'), $this->queryInt('limit', 30, 50));
+					$result = $this->messenger->searchMessages($actor, (string)$this->wire()->input->get('q'), $this->queryInt('limit', 30, 50), (string)$this->wire()->input->get('include_groups')==='1');
 					break;
 				case 'recipients':
 					$this->allow($method, ['GET']);
@@ -204,6 +207,7 @@ final class MessengerRestApi extends Wire {
 		$result = ['is_login' => (bool)$actor->isLoggedin(), 'user_id' => (int)$actor->id, 'can_use' => $this->messenger->canUse($actor), 'can_moderate' => !$native && $this->messenger->canModerate($actor)];
 		// Only the authenticated member may read their own minimal profile.
 		if($result['is_login'] && $result['can_use']) {
+			$result['groups_supported']=$this->messenger->groupsReady();
 			$result['name'] = (string)$actor->name;
 			$result['title'] = (string)($actor->get('display_name') ?: $actor->get('title') ?: $actor->name);
 		}
@@ -219,7 +223,7 @@ final class MessengerRestApi extends Wire {
 	private function nullableQueryInt(string $name): ?int { $value=(int)$this->wire()->input->get($name);return $value>0?$value:null; }
 
 	private function jsonBody(string $resource = ''): array {
-		$maximum=$resource==='send-attachment'?12*1024*1024:self::MAX_BODY_BYTES;
+		$maximum=$resource==='send-attachment'?12*1024*1024:($resource==='group-avatar'?1024*1024:self::MAX_BODY_BYTES);
 		$type=strtolower(trim(explode(';',(string)($_SERVER['CONTENT_TYPE']??''))[0]));if($type!=='application/json')throw new \InvalidArgumentException('Content-Type application/json is required.');
 		$length=(int)($_SERVER['CONTENT_LENGTH']??0);if($length>$maximum)throw new \InvalidArgumentException('Request is too large.');
 		$raw=file_get_contents('php://input',false,null,0,$maximum+1);if(!is_string($raw)||strlen($raw)>$maximum)throw new \InvalidArgumentException('Request is too large.');

@@ -35,7 +35,7 @@ trait MessengerConversationSettings {
 		return $this->atomic(function()use($id,$actor,$seconds,$at):array{
 			$stmt=$this->wire('database')->prepare('SELECT id FROM messenger_conversations WHERE id=?'.$this->forUpdate($this->wire('database')));$stmt->execute([$id]);
 			$conversation=$this->conversation($id,$actor);if(!$conversation||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked'])throw new WirePermissionException('Conversation unavailable.');
-			if(!$this->canReceive($this->wire('users')->get((int)$conversation['other_user']['id'])))throw new WirePermissionException('Conversation unavailable.');
+			if(($conversation['type']??'direct')==='group'){$this->groupLock($id,$actor,true);}elseif(!$this->canReceive($this->wire('users')->get((int)$conversation['other_user']['id'])))throw new WirePermissionException('Conversation unavailable.');
 			$this->execute('UPDATE messenger_conversations SET auto_delete_seconds=?,auto_delete_at=? WHERE id=?',[$seconds,$at,$id]);$this->audit('retention_changed',$id,0,(int)$actor->id,['seconds'=>$seconds,'at'=>$at]);return $this->conversation($id,$actor);
 		});
 	}

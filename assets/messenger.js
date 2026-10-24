@@ -10,6 +10,7 @@
 	var threadNode = root.querySelector('[data-thread]');
 	var statusNode = root.querySelector('[data-messenger-status]');
 	var requestScopeButton = root.querySelector('[data-scope="requests"]');
+	var groups = null,media = null;
 	var session = null, scope = 'inbox', active = null, newestId = 0, threadTimer = null, inboxTimer = null;
 
 	function endpoint(resource, query) {
@@ -20,6 +21,7 @@
 	function request(resource, options, query) {
 		options = options || {};
 		options.headers = Object.assign({'Accept': 'application/json'}, options.headers || {});
+		if(session&&session.user_id)options.headers['X-Messenger-Actor']=String(session.user_id);
 		if (options.method === 'POST') {
 			options.headers['Content-Type'] = 'application/json';
 			var body = options.body || {};
@@ -68,7 +70,7 @@
 	function loadInbox(silent) {
 		var epoch=++inboxEpoch,requestedScope=scope;
 		if (!silent) listNode.setAttribute('aria-busy', 'true');
-		return request('inbox', {}, {scope: scope, limit: 50}).then(function (result) {
+		return request('inbox', {}, {scope: scope, limit: 50, include_groups:session&&session.groups_supported?'1':'0'}).then(function (result) {
 			if(epoch!==inboxEpoch||scope!==requestedScope)return;
 			updateRequestBadge(result.pending_request_count);
             if(searchActive){listNode.removeAttribute('aria-busy');return;}
@@ -85,7 +87,7 @@
 		var body = el('span', 'MessengerConversation-body'); var top = el('span', 'MessengerConversation-top'); top.append(el('strong','',item.other_user.title || item.other_user.name || 'Member'), el('time','',formatDate(item.sort_at,item.sort_at_iso)));
 		var preview = item.last_message ? (item.last_message.deleted_at ? 'Message removed' : item.last_message.body) : (item.request_state === 'pending' ? 'Message request' : 'Conversation started');
 		var bottom = el('span','MessengerConversation-bottom'); bottom.append(el('span','MessengerConversation-preview',preview)); if (item.unread_count) bottom.append(el('span','MessengerUnread',String(item.unread_count), 'badge'));
-		body.append(top,bottom); row.append(avatar,body); listNode.appendChild(row);
+		body.append(top,bottom); row.append(avatar,body); listNode.appendChild(row);if(media)media.groupPhoto(avatar,item);
 	}
 
 	function rememberDraft(){var area=threadNode.querySelector('[data-composer] textarea');if(active&&area)threadDrafts[active.id]=area.value;}
@@ -99,9 +101,10 @@
 		if(active.client_policy){var oldInbox=root.dataset.inboxPoll;root.dataset.maxLength=active.client_policy.max_message_length;root.dataset.threadPoll=active.client_policy.poll_thread_seconds;root.dataset.inboxPoll=active.client_policy.poll_inbox_seconds;if(oldInbox!==root.dataset.inboxPoll)scheduleInbox();}
 		empty(threadNode); threadNode.dataset.id = active.id;
 		var header = el('header','MessengerThread-header',undefined,'thread_header'); var identity = el('div','MessengerIdentity'); identity.append(button('Back','back','MessengerBack'), el('span','MessengerAvatar',(active.other_user.title || '?').slice(0,1).toUpperCase(),'avatar'), el('h2','',active.other_user.title || active.other_user.name || 'Member'));
-		var actions = el('div','MessengerThread-actions',undefined,'actions'); actions.append(button(active.archived_at ? 'Restore' : 'Archive','archive'), button(active.muted_until ? 'Unmute' : 'Mute','mute')); if(active.blocked_by_actor) actions.append(button('Unblock','unblock','MessengerDanger','button_danger')); else if(!active.blocked_by_other) actions.append(button('Block','block','MessengerDanger','button_danger')); header.append(identity,actions);
+
+		var actions = el('div','MessengerThread-actions',undefined,'actions'); actions.append(button(active.archived_at ? 'Restore' : 'Archive','archive'), button(active.muted_until ? 'Unmute' : 'Mute','mute')); if(active.type==='group' && groups) {var groupButton=button('Group info','group-settings');groupButton.addEventListener('click',function(){groups.settings(active.id);});actions.append(groupButton);}else if(active.blocked_by_actor) actions.append(button('Unblock','unblock','MessengerDanger','button_danger')); else if(active.type!=='group' && !active.blocked_by_other) actions.append(button('Block','block','MessengerDanger','button_danger')); header.append(identity,actions);
 		var messages = el('div','MessengerMessages',undefined,'message_list'); messages.dataset.messages = '';
-		threadNode.append(header);
+		threadNode.append(header);if(media)media.groupPhoto(identity.querySelector('.MessengerAvatar'),active);
 		if (active.request_state === 'pending' && active.recipient_id === session.user_id) {
 			var requestBar = el('section','MessengerRequest',undefined,'request');
 			var requestActions = el('div','MessengerRequest-actions',undefined,'actions');
@@ -114,7 +117,7 @@
 		if (!active.blocked && active.request_state!=='declined' && (active.request_state === 'accepted' || active.requester_id === session.user_id)) {
 			var form = el('form','MessengerComposer',undefined,'composer'); form.dataset.composer=''; var area = el('textarea','',undefined,'textarea'); area.name='body'; area.rows=1; configureMessageInput(area); area.required=true; area.value=threadDrafts[active.id]||'';var composerId=active.id;area.addEventListener('input',function(){threadDrafts[composerId]=area.value;});area.placeholder=active.request_state === 'pending' && active.can_send!==true ? 'Waiting for this request to be accepted' : 'Write a message…';
 			if(active.can_send===false || (active.can_send===undefined && active.request_state === 'pending')) area.disabled=true;
-			var send = el('button','MessengerPrimary','Send','button_primary'); send.type='submit'; if(area.disabled) send.disabled=true; form.append(area,send); threadNode.append(form);
+			var send = el('button','MessengerPrimary','Send','button_primary'); send.type='submit'; if(area.disabled) send.disabled=true; form.append(area,send);if(active.type==='group'&&media)media.attach(form,active); threadNode.append(form);
 		}
 	}
 	function loadMessages(incremental) {
@@ -132,7 +135,7 @@
 	}
 	function renderMessage(item) {
 		var own=item.sender_user_id===session.user_id; var article=el('article','MessengerMessage ' + (own?'is-own':'is-other'),undefined,'message'); article.dataset.messageId=item.id;
-		var bubble=el('div','MessengerBubble',undefined,'bubble'); bubble.append(el('p','',item.deleted_at?'Message removed':item.body),el('time','',formatDate(item.created_at,item.created_at_iso)));
+		var bubble=el('div','MessengerBubble',undefined,'bubble');if(active&&active.type==='group'&&item.sender&&!own)bubble.append(el('strong','',item.sender.title||item.sender.name));var technical=media&&item.attachment&&!item.deleted_at&&((/^image\//.test(item.attachment.mime_type)&&item.body===item.attachment.filename)||(item.attachment.kind==='voice'&&item.body==='Voice message'));if(!technical)bubble.append(el('p','',item.deleted_at?'Message removed':item.body));if(media&&item.attachment)media.attachment(bubble,item);bubble.append(el('time','',formatDate(item.created_at,item.created_at_iso)));
 		if(!item.deleted_at && Number.isInteger(item.id) && item.id>0) {
 			var controls=el('span','MessengerMessage-controls');
 			if(own){if(item.can_edit!==false)controls.append(button('Edit','edit','MessengerMessage-action','button_tertiary'));if(item.can_delete_for_everyone!==false)controls.append(button('Delete','delete','MessengerMessage-action','button_tertiary'));}else controls.append(button('Report','report','MessengerMessage-action','button_tertiary'));
@@ -190,7 +193,7 @@
         event.preventDefault();var q=String(new FormData(event.currentTarget).get('q')||'').trim(),epoch=++searchEpoch;
         if(q.length<2){searchActive=false;loadInbox();return;}
         searchActive=true;inboxEpoch++;listNode.setAttribute('aria-busy','true');
-        request('search',{}, {q:q,limit:30}).then(function(items){
+        request('search',{}, {q:q,limit:30,include_groups:session&&session.groups_supported?'1':'0'}).then(function(items){
             if(epoch!==searchEpoch||!searchActive)return;empty(listNode);listNode.removeAttribute('aria-busy');
             if(!items.length){listNode.appendChild(el('p','MessengerState','No matching messages.'));return;}
             items.forEach(function(item){var row=button('', 'open','MessengerSearchResult','conversation');row.dataset.id=item.conversation_id;row.append(el('strong','',item.body),el('time','',formatDate(item.created_at,item.created_at_iso)));listNode.appendChild(row);});
@@ -209,5 +212,5 @@
     function scheduleThread(){clearInterval(threadTimer);threadTimer=setInterval(function(){if(!document.hidden&&active)refreshThread().catch(function(){});},Math.max(3,Number(root.dataset.threadPoll)||4)*1000);}
     function scheduleInbox(){clearInterval(inboxTimer);inboxTimer=setInterval(function(){if(!document.hidden)loadInbox(true);},Math.max(10,Number(root.dataset.inboxPoll)||20)*1000);}
     scheduleInbox();
-	request('session').then(function(result){session=result;if(!session.can_use)throw new Error('Messenger is unavailable.');return loadInbox();}).catch(function(error){say(error.message,true);listNode.innerHTML='<p class="MessengerState">Messenger is unavailable.</p>';});
+	request('session').then(function(result){session=result;if(!session.can_use)throw new Error('Messenger is unavailable.');if(window.ProcessWireMessengerMedia)media=window.ProcessWireMessengerMedia.create({root:root,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},refresh:function(id){if(active&&active.id===id)loadMessages(false);loadInbox(true);}});if(session.groups_supported&&window.ProcessWireMessengerGroups)groups=window.ProcessWireMessengerGroups({root:root,request:request,el:el,button:button,say:say,clientId:clientId,loadInbox:loadInbox,openConversation:openConversation,closeConversation:function(){rememberDraft();threadEpoch++;active=null;root.dataset.threadOpen='false';empty(threadNode);loadInbox();}});return loadInbox();}).catch(function(error){say(error.message,true);listNode.innerHTML='<p class="MessengerState">Messenger is unavailable.</p>';});
 }());

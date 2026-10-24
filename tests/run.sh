@@ -4,13 +4,16 @@ cd "$(dirname "$0")/.."
 while IFS= read -r file; do php -l "$file" >/dev/null; done < <(find . -path './.git' -prune -o -path './vendor' -prune -o -path './.work' -prune -o -name node_modules -prune -o -name '*.php' -type f -print)
 node --check assets/messenger.js
 node --check assets/messenger-admin.js
+node --check assets/messenger-groups.js
+node --check assets/messenger-media.js
 node tests/web-dates.cjs
-if [[ -d tests/web-dom/node_modules/jsdom ]]; then node tests/web-behavior.cjs; else echo "Web DOM behavior: skipped (run npm ci --prefix tests/web-dom --ignore-scripts)"; fi
+if [[ -d tests/web-dom/node_modules/jsdom ]]; then node tests/web-behavior.cjs; node tests/web-groups.cjs; node tests/web-media.cjs; else echo "Web DOM behavior: skipped (run npm ci --prefix tests/web-dom --ignore-scripts)"; fi
 php tests/contracts.php
 php tests/upgrade-patch.php
 php tests/wirewall-integration.php
 php tests/mobile-domain.php
 php tests/client-policy.php
+php tests/groups.php
 php tests/calls.php
 php tests/call-feedback.php
 php tests/message-push.php

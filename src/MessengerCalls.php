@@ -98,6 +98,7 @@ trait MessengerCalls {
         $this->execute("UPDATE messenger_calls SET state='ended' WHERE state IN ('ringing','active') AND (expires_at<=? OR (state='active' AND (caller_seen<? OR callee_seen<?)) OR caller_grant NOT IN (SELECT id FROM messenger_mobile_grants WHERE revoked_at IS NULL) OR (answer_grant IS NOT NULL AND answer_grant NOT IN (SELECT id FROM messenger_mobile_grants WHERE revoked_at IS NULL)))",[time(),time()-45,time()-45]);
     }
     private function callConversation(User $actor,int $id):array {
+        if($this->scalar("SELECT COUNT(*) FROM messenger_conversations WHERE id=? AND type='group'",[$id]))throw new WirePermissionException('Direct conversation required.');
         $this->assertActor($actor);$chat=$this->conversation($id,$actor);
         if(!$chat || ($chat['state']??'')!=='active' || ($chat['request_state']??'')!=='accepted' || !empty($chat['blocked']) || empty($chat['can_send']))throw new WirePermissionException('Call unavailable.');
         return $chat;
