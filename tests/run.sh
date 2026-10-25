@@ -24,6 +24,7 @@ php tests/polls.php
 php tests/group-links.php
 php tests/group-events.php
 php tests/group-event-reminders.php
+php tests/account-event-reminders.php
 php tests/mentions.php
 php tests/mentions-push.php
 php tests/forwarding.php
@@ -39,6 +40,7 @@ php tests/write-acks.php
 php tests/silent-messages.php
 php tests/call-feedback.php
 php tests/message-push.php
+php tests/account-message-push.php
 php tests/message-push-provider.php
 php tests/image-albums.php
 php tests/message-info.php

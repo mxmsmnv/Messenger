@@ -23,7 +23,7 @@ Start with a site-specific Blueprint covering member roles, first-contact journe
 
 Then:
 
-1. Confirm Messenger 1.6.8/module version 168 and its PHP/ProcessWire/sodium requirements.
+1. Confirm Messenger 1.6.9/module version 169 and its PHP/ProcessWire/sodium requirements.
 2. Map existing users, roles, permissions, routes, templates, cache layers, WireMail providers, and the authoritative relationship service.
 3. Decide whether first contact is open, a Message Request, or site-policy only. Use `Messenger::messagingDecision` for verified match/connection rules.
 4. Obtain approval before installation, route/schema/permission changes, email activation, or policy changes.
@@ -67,6 +67,10 @@ Never query `messenger_*` tables from templates, call private/protected helpers,
 - Do not grant `messenger-view-content` automatically with `messenger-moderate`.
 - Do not log message bodies, evidence, session IDs, CSRF values, encryption secrets, or personal data.
 - Never persist message/report content outside the authenticated-encryption envelope. Missing key material, unavailable sodium, or authentication failure must fail closed.
+- `account_push` is explicit grant-bound message registration, never implicit native
+  multi-account activation. Verify the current token/hash mode before appending the
+  connection route. Legacy registration/callback formats remain compatible. Never
+  route to the selected account as a fallback or imply VoIP routing is included.
 - Never print, persist in module settings, commit, or casually rotate `$config->messengerEncryptionKey` or its `tableSalt` fallback.
 - First-contact policy must query verified site data; a posted relationship flag is untrusted.
 - Treat broadcasts as an external communication side effect. Preview the snapshotted audience, require explicit confirmation, never put message bodies in logs or audit metadata, and do not reinterpret `messenger-moderate` as broadcast authority.
@@ -121,4 +125,4 @@ These are already responsibility boundaries. Keep domain invariants in the modul
 
 Run PHP syntax checks for all PHP files, `php tests/contracts.php`, and `php tests/encryption-integration.php`. On a disposable ProcessWire site, verify installation/upgrade, module settings, public rendering, REST/session/CSRF behavior, two-user request and conversation flows, moderation permissions, notification preview/failure paths, responsive UI, and retain-on-uninstall behavior.
 
-Runtime changes require synchronized version metadata and [CHANGELOG.md](CHANGELOG.md). Release 1.6.8 uses ProcessWire integer version `168`.
+Runtime changes require synchronized version metadata and [CHANGELOG.md](CHANGELOG.md). Release 1.6.9 uses ProcessWire integer version `169`.

@@ -1,0 +1,35 @@
+<?php declare(strict_types=1);namespace ProcessWire;
+require __DIR__.'/support/bootstrap.php';
+[$m,$db,$a,$b,$c]=fixture();$admin=new class(99)extends User{public function isSuperuser(){return true;}};
+$m->installMessagePush($admin);$m->wire('config')->messengerPush=['enabled'=>true,'push_ready'=>true];$m->set('first_contact_mode','open')->set('max_messages_minute',1000);
+$ga=str_repeat('a',32);$gb=str_repeat('b',32);$gc=str_repeat('c',32);$gd=str_repeat('d',32);
+foreach([$ga=>$a->id,$gb=>$b->id,$gc=>$c->id,$gd=>$c->id]as$g=>$id)$db->prepare('INSERT INTO messenger_mobile_grants VALUES(?,?,?,?,NULL)')->execute([$g,$id,'synthetic',time()]);
+$token='synthetic_shared_account_token_001';
+$register=function($actor,$grant,?bool $binding=true,bool $enabled=true,string $platform='android',?string $value=null)use($m,$token){$body=['enabled'=>$enabled,'platform'=>$platform,'token'=>$value??$token,'sound'=>true];if($binding!==null)$body['account_binding']=$binding;return $m->messagePushDevice($actor,$grant,'POST',$body);};
+$enabled=fn($grant)=>(int)$db->query("SELECT enabled FROM messenger_message_devices WHERE grant_id='$grant'")->fetchColumn();
+$result=$register($a,$ga);check($result===['enabled'=>true,'account_binding'=>true,'connection_id'=>$ga],'explicit registration acknowledges the authenticated connection without returning a token');
+$register($b,$gb);check($enabled($ga)===1&&$enabled($gb)===1,'two authenticated accounts share one token without displacement');
+$hashes=$db->query('SELECT token_hash FROM messenger_message_devices')->fetchAll(\PDO::FETCH_COLUMN);check(count(array_unique($hashes))===2,'existing unique index retains independent grant-bound hashes');
+check(!str_contains((string)$db->query('SELECT token FROM messenger_message_devices LIMIT 1')->fetchColumn(),$token),'shared provider tokens stay encrypted');
+$register($a,$ga);check((int)$db->query('SELECT COUNT(*) FROM messenger_message_devices')->fetchColumn()===2,'same account re-registration stays idempotent');
+$register($c,$gc,null);$legacy=$register($c,$gd,null);check($legacy===['enabled'=>true]&&$enabled($gc)===0&&$enabled($gd)===1,'legacy response and single-grant transfer remain unchanged');
+check($enabled($ga)===1&&$enabled($gb)===1,'legacy registration cannot evict explicitly bound accounts');
+denied(fn()=>$register($c,$ga));check($enabled($ga)===1,'another actor cannot replace a bound registration');
+try{$m->messagePushDevice($a,$ga,'POST',['enabled'=>true,'platform'=>'android','token'=>$token,'sound'=>true,'account_binding'=>'true']);throw new \RuntimeException('Expected invalid mode');}catch(\InvalidArgumentException $e){check(true,'account binding requires a JSON boolean');}
+$original=$m->services['user'];$m->services['users']=new class($m,$a,$b,$c){public function __construct(private $m,private $a,private $b,private $c){}public function get($id){return (int)$id===$this->a->id?$this->a:((int)$id===$this->b->id?$this->b:$this->c);}public function setCurrentUser($user){$this->m->services['user']=$user;}};
+$one=$m->startConversation($c,$a,'Private A body','account_push_start_a_001');$two=$m->startConversation($c,$b,'Private B body','account_push_start_b_001');$chatA=(int)$one['conversation']['id'];$chatB=(int)$two['conversation']['id'];
+$sent=[];$send=function(...$args)use(&$sent){$sent[]=$args;return true;};
+$r=$m->processMessagePushes($admin,$send);check($r['sent']===2&&count($sent)===2,'both account recipients receive independently authorized delivery');
+$d=(new MessengerMobileAuth($m))->discovery();$prefix=$d['issuer'].'#'.$d['site_id'].'#';$keys=array_column($sent,4);check(in_array($prefix.$a->id.'#'.$ga,$keys,true)&&in_array($prefix.$b->id.'#'.$gb,$keys,true),'bound routing includes exact site member and grant');
+check(count($sent[0])===6&&!str_contains(json_encode($sent),'Private'),'provider signature and metadata-only privacy remain unchanged');
+check($m->services['user']===$original,'account dispatch restores worker current-user context');
+check(in_array('account_push',$d['features'],true),'capability advertises account routing only with ready message push');
+$db->exec("UPDATE messenger_mobile_grants SET revoked_at=1 WHERE id='$ga'");$m->sendMessage($chatA,$c,'Revoke test A','account_push_revoked_001');$m->sendMessage($chatB,$c,'Keep B','account_push_keep_b_001');$before=count($sent);$r=$m->processMessagePushes($admin,$send);check($r['sent']===1&&count($sent)===$before+1&&end($sent)[4]===$prefix.$b->id.'#'.$gb,'revoked account is excluded while the other still receives');
+$db->exec("UPDATE messenger_mobile_grants SET revoked_at=NULL WHERE id='$ga'");$register($a,$ga);
+$m->sendMessage($chatA,$c,'Disable A','account_push_disable_a_001');$register($a,$ga,true,false);check($enabled($ga)===0&&$enabled($gb)===1,'disabling one registration preserves the other account');check($m->processMessagePushes($admin,$send)['sent']===0,'selective disable discards its pending jobs');
+$register($a,$ga);$db->exec("UPDATE messenger_message_devices SET token_hash='".str_repeat('0',64)."' WHERE grant_id='$ga'");$m->sendMessage($chatA,$c,'Corrupt registration','account_push_bad_hash_001');check($m->processMessagePushes($admin,$send)['discarded']===1,'unverifiable hash mode cannot emit routing metadata');$register($a,$ga);
+$m->sendMessage($chatB,$c,'Rotate B','account_push_rotate_b_001');$apple='production:'.str_repeat('f',64);$register($b,$gb,true,true,'ios',$apple);$m->processMessagePushes($admin,$send);$last=end($sent);check($last[0]==='ios'&&$last[1]===$apple&&$last[4]===$prefix.$b->id.'#'.$gb,'queued job uses fresh platform token and exact bound account');
+$m->sendMessage($chatA,$c,'Rejected provider','account_push_provider_001');check($m->processMessagePushes($admin,fn(...$args)=>false)['discarded']===1&&$enabled($ga)===0&&$enabled($gb)===1,'permanent provider rejection disables only its bound grant');
+$m->wire('config')->messengerPush=['enabled'=>false,'push_ready'=>true];check(!in_array('account_push',(new MessengerMobileAuth($m))->discovery()['features'],true),'disabled operator configuration removes account push capability');
+
+echo 'Account-bound message push checks: '.$GLOBALS['checks'].PHP_EOL;

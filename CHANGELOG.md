@@ -4,6 +4,16 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.9] — development candidate, not installed
+
+- Add explicit account-bound message push registration without a schema change.
+  Multiple stored accounts may share one native token without displacing each
+  other; legacy clients keep their existing single-grant behavior.
+- Bind message/reminder routing metadata to the authenticated connection. Keep
+  encrypted provider tokens, callback signatures, visibility/mute/silent checks,
+  bounded worker retries and selective disable/revocation. No site/provider or
+  multi-account native UI activation is implied.
+
 ### [1.6.8] — development candidate, not installed
 
 - Add opt-in group events: encrypted details/RSVPs, explicit timezone/UTC instant,

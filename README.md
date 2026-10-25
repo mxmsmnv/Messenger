@@ -12,6 +12,14 @@ Use Messenger when a ProcessWire site needs direct one-to-one conversations with
 
 If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
+## Account-bound notification candidate
+
+Messenger1.6.9 adds explicit `account_push` registration so stored accounts may
+share a native message token without displacing each other. Messages and consented
+event reminders carry exact connection-routing metadata; legacy clients keep
+single-grant registration. No schema/provider/site activation or completed native
+multi-account/VoIP support is implied. See [API.md](API.md).
+
 ## Without-notification attachment candidate
 
 Messenger1.6.4 adds explicit per-message suppression of email/message push, with

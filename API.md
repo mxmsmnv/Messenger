@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.8 (ProcessWire module version `168`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.9 (ProcessWire module version `169`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -367,10 +367,32 @@ independent and cannot restore a call. Uninstall continues retaining tables.
 `messagePushReady(): bool` checks configuration and schema without creating them.
 `POST /messenger-api/v1/message-push-device/` requires a cookie-free native bearer
 grant and `enabled`/`sound` booleans, `platform` (`ios`/`android`) and `token`.
-Tokens are encrypted at rest, never returned or logged. A token is bound to one
-current grant; user/device revocation, mute, read state, hidden/deleted/expired
+Tokens are encrypted at rest, never returned or logged. Legacy registration binds
+a token to one current grant; user/device revocation, mute, read state, hidden/deleted/expired
 messages and blocks are rechecked before dispatch. Registration cannot select a
 user or conversation. Discovery advertises `message_push` only when ready.
+
+Messenger1.6.9 also advertises `account_push` when message push is ready. A client
+with a validated local account registry may explicitly add `account_binding:true`
+to registration. The response acknowledges `account_binding` and its authenticated
+`connection_id`. Never choose the user/grant in the request. Legacy bodies and
+responses are unchanged. Opted-in accounts may share one provider token without
+evicting each other; disabling/revoking one grant affects only its binding.
+
+Bound message and event-reminder `accountKey` values append a fourth `#connectionId`
+segment to `issuer#siteId#memberId`. Provider callback signatures remain unchanged.
+The client must resolve that exact existing stored connection and validate member
+identity before fetching/opening a chat; never fall back to the currently selected
+account or start authentication from a push URL. Legacy three-segment keys require
+an unambiguous stored identity. The scope is routing metadata, never a credential.
+
+The existing encrypted device row/unique hash column is reused with a domain-
+separated token/platform/grant hash; no implicit DDL, new schema or provider change.
+Registration mode is verified against decrypted token/hash at dispatch. Operator
+configuration, mute/silent/visibility/revocation checks and worker bounds remain
+controlling. Call/VoIP account routing is a separate capability and is not supplied
+by `account_push`. Native multi-account activation still requires client routing.
+See [candidate verification and boundaries](docs/ACCOUNT_PUSH.md).
 
 `processMessagePushes(User $administrator, callable $send, int $limit=20)` drains
 at most20eligible entries, with five bounded attempts and seven-day outbox
@@ -657,7 +679,7 @@ Messages add actor-specific `mentioned` and encrypted-at-rest captured `mentions
 entities; group summaries add own `mentions_only` and independent unread
 `last_mention`. No template-side SQL, recipient impersonation or automatic migration.
 
-## Group events (1.6.8 development candidate)
+## Group events (1.6.9 development candidate)
 
 See [the event, consent and operator contract](docs/GROUP_EVENTS.md). Public methods:
 `installGroupEvents`, `createGroupEvent`, `groupEvent`, `updateGroupEvent`,

@@ -21,24 +21,41 @@ trait MessengerMessagePush {
     public function messagePushDevice(User $actor,string $grant,string $method,array $body):array {
         $this->assertActor($actor);
         if(!$this->messagePushReady())throw new WirePermissionException('Message push unavailable.');
-        if($method!=='POST'||array_diff(array_keys($body),['enabled','platform','token','sound'])||!is_bool($body['enabled']??null)||!is_bool($body['sound']??null)||!in_array($body['platform']??null,['ios','android'],true)||!is_string($body['token']??null))throw new \InvalidArgumentException('Invalid message registration.');
+        if((array_key_exists('account_binding',$body)&&!is_bool($body['account_binding']))||$method!=='POST'||array_diff(array_keys($body),['enabled','platform','token','sound','account_binding'])||!is_bool($body['enabled']??null)||!is_bool($body['sound']??null)||!in_array($body['platform']??null,['ios','android'],true)||!is_string($body['token']??null))throw new \InvalidArgumentException('Invalid message registration.');
         return $this->atomic(function()use($actor,$grant,$body):array{
             $db=$this->wire('database');$lock=$db->getAttribute(\PDO::ATTR_DRIVER_NAME)==='sqlite'?'':' FOR UPDATE';
             $q=$db->prepare('SELECT user_id FROM messenger_mobile_grants WHERE id=? AND revoked_at IS NULL'.$lock);$q->execute([$grant]);
             if((int)$q->fetchColumn()!==(int)$actor->id)throw new WirePermissionException('Native connection unavailable.');
             $token=$body['token'];
             if($body['enabled'] && !(($body['platform']==='ios'&&preg_match('/^(sandbox|production):[a-f0-9]{64,200}$/D',$token))||($body['platform']==='android'&&preg_match('/^[A-Za-z0-9:_-]{16,2048}$/D',$token))))throw new \InvalidArgumentException('Invalid message registration.');
-            // One current token may belong to this authenticated grant only. The token
-            // is never returned, logged, placed in configuration or stored as plaintext.
+            // Legacy clients still transfer one token between legacy grants. Explicit
+            // account bindings use a domain-separated token/grant hash in the existing
+            // unique column, preserving other opted-in accounts without a schema change.
+            // Tokens remain authenticated-encrypted, never returned or logged.
             $q=$db->prepare('SELECT grant_id FROM messenger_message_devices WHERE grant_id=?');$q->execute([$grant]);$exists=$q->fetchColumn();
-            $hash=$body['enabled']?hash('sha256',$token):null;
-            if($hash!==null)$db->prepare('UPDATE messenger_message_devices SET enabled=0,token_hash=NULL WHERE token_hash=? AND grant_id<>?')->execute([$hash,$grant]);
+            $binding=$body['account_binding']??false;
+            $hash=$body['enabled']?($binding?$this->accountMessageTokenHash($body['platform'],$token,$grant):hash('sha256',$token)):null;
+            if($hash!==null&&!$binding)$db->prepare('UPDATE messenger_message_devices SET enabled=0,token_hash=NULL WHERE token_hash=? AND grant_id<>?')->execute([$hash,$grant]);
             $values=[(int)$actor->id,$body['platform'],$body['enabled']?$this->encryptValue($token,'Messenger|message-device|'.$grant):'',$hash,(int)$body['enabled'],(int)$body['sound'],time()];
             if($exists)$db->prepare('UPDATE messenger_message_devices SET user_id=?,platform=?,token=?,token_hash=?,enabled=?,sound=?,updated_at=? WHERE grant_id=?')->execute([...$values,$grant]);
             else $db->prepare('INSERT INTO messenger_message_devices(user_id,platform,token,token_hash,enabled,sound,updated_at,grant_id) VALUES(?,?,?,?,?,?,?,?)')->execute([...$values,$grant]);
             if(!$body['enabled'])$this->execute("UPDATE messenger_message_pushes SET status='discarded' WHERE grant_id=? AND status IN ('pending','processing')",[$grant]);
-            return ['enabled'=>$body['enabled']];
+            $result=['enabled'=>$body['enabled']];
+            if(array_key_exists('account_binding',$body)){$result['account_binding']=$binding;$result['connection_id']=$grant;}
+            return $result;
         });
+    }
+    private function accountMessageTokenHash(string $platform,string $token,string $grant):string {
+        return hash('sha256',"Messenger|account-message-device\0".$platform."\0".$grant."\0".$token);
+    }
+    /** Account routing is metadata, not a bearer credential. Verify the encrypted
+     * registration against its hash mode before emitting a connection suffix. */
+    private function messagePushAccountSuffix(array $device,string $token,string $grant):string {
+        $hash=$device['token_hash']??null;
+        if(!is_string($hash)||!preg_match('/^[a-f0-9]{32}$/D',$grant))throw new WirePermissionException('Registration unavailable.');
+        if(hash_equals($this->accountMessageTokenHash($device['platform'],$token,$grant),$hash))return '#'.$grant;
+        if(hash_equals(hash('sha256',$token),$hash))return '';
+        throw new WirePermissionException('Registration unavailable.');
     }
     /** Opaque ASCII grants compare exactly across legacy/MySQL8 table collations. */
     private function messagePushGrantJoin():string {return $this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql'?'g.id=CAST(d.grant_id AS BINARY)':'g.id=d.grant_id';}
@@ -61,7 +78,7 @@ trait MessengerMessagePush {
         foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$row){
             $claim=$db->prepare("UPDATE messenger_message_pushes SET status='processing',attempts=attempts+1,available_at=? WHERE message_id=? AND grant_id=? AND status='pending'");$claim->execute([$now,$row['message_id'],$row['grant_id']]);if($claim->rowCount()!==1)continue;
             try {
-                $valid=$db->prepare('SELECT d.enabled,d.sound,d.token,d.updated_at,g.revoked_at,p.last_read_message_id,p.muted_until FROM messenger_message_devices d JOIN messenger_mobile_grants g ON '.$this->messagePushGrantJoin().' JOIN messenger_participants p ON p.user_id=d.user_id AND p.conversation_id=? WHERE d.grant_id=? AND g.user_id=d.user_id');$valid->execute([(int)$row['conversation_id'],$row['grant_id']]);$state=$valid->fetch(\PDO::FETCH_ASSOC);
+                $valid=$db->prepare('SELECT d.enabled,d.sound,d.token,d.token_hash,d.platform,d.updated_at,g.revoked_at,p.last_read_message_id,p.muted_until FROM messenger_message_devices d JOIN messenger_mobile_grants g ON '.$this->messagePushGrantJoin().' JOIN messenger_participants p ON p.user_id=d.user_id AND p.conversation_id=? WHERE d.grant_id=? AND g.user_id=d.user_id');$valid->execute([(int)$row['conversation_id'],$row['grant_id']]);$state=$valid->fetch(\PDO::FETCH_ASSOC);
                 if(!$state||!$state['enabled']||$state['updated_at']<$now-2592000||$state['revoked_at']!==null||$state['last_read_message_id']>=$row['message_id']||($state['muted_until']&&strtotime($state['muted_until'])>$now))throw new WirePermissionException('Notification no longer eligible.');
                 $recipient=$this->wire('users')->get((int)$row['user_id']);$previous=$this->wire('user');
                 try {
@@ -76,7 +93,8 @@ trait MessengerMessagePush {
                     $account=$discovery['issuer'].'#'.$discovery['site_id'].'#'.(int)$recipient->id;
                 }finally{$this->wire('users')->setCurrentUser($previous);}
                 $token=$this->decryptValue($state['token'],'Messenger|message-device|'.$row['grant_id']);
-                $accepted=$send($row['platform'],$token,(int)$row['message_id'],(int)$row['conversation_id'],$account,(bool)$state['sound']);
+                $account.=$this->messagePushAccountSuffix($state,$token,$row['grant_id']);
+                $accepted=$send($state['platform'],$token,(int)$row['message_id'],(int)$row['conversation_id'],$account,(bool)$state['sound']);
                 if(!is_bool($accepted))throw new \RuntimeException('Invalid provider acknowledgement.');
                 if(!$accepted)$this->execute('UPDATE messenger_message_devices SET enabled=0 WHERE grant_id=?',[$row['grant_id']]);
                 $status=$accepted?'sent':'discarded';$result[$status]++;
