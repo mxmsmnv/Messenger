@@ -1,0 +1,8 @@
+<?php declare(strict_types=1); namespace ProcessWire;
+// Synthetic owned clone only; invitation token never appears in process arguments.
+$root='';$actorId=0;$linkId=0;foreach(array_slice($argv,1)as$arg){if(str_starts_with($arg,'--root='))$root=rtrim(substr($arg,7),'/');if(str_starts_with($arg,'--actor='))$actorId=(int)substr($arg,8);if(str_starts_with($arg,'--link='))$linkId=(int)substr($arg,7);}
+if(!$root||$actorId<1||$linkId<1||trim((string)@file_get_contents(dirname($root).'/.narzan-disposable'))!=='narzan-groups-integration-v1')throw new \RuntimeException('Owned clone required.');
+require $root.'/index.php';$db=wire('database');if(!preg_match('/^narzan_groups_[a-f0-9]{8}$/D',(string)$db->query('SELECT DATABASE()')->fetchColumn()))throw new \RuntimeException('Owned clone database required.');
+$m=wire('modules')->get('Messenger');if(realpath((new \ReflectionClass($m))->getFileName())!==realpath($root.'/site/modules/Messenger/Messenger.module.php'))throw new \RuntimeException('Owned candidate runtime required.');
+$m->set('groups_enabled',1)->set('first_contact_mode','open')->set('max_new_recipients_day',1000);$q=$db->prepare('SELECT created_by,conversation_id FROM messenger_group_links WHERE id=?');$q->execute([$linkId]);$row=$q->fetch(\PDO::FETCH_ASSOC);$issuer=wire('users')->get((int)$row['created_by']);wire('users')->setCurrentUser($issuer);$token=$m->groupLinkStatus($issuer,(int)$row['conversation_id'])['link']['token'];echo "link-worker:ready\n";flush();$actor=wire('users')->get($actorId);wire('users')->setCurrentUser($actor);
+try{$m->joinGroupLink($actor,$token);echo "link-worker:accepted\n";}catch(WirePermissionException $e){echo "link-worker:denied\n";}

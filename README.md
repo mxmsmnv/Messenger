@@ -193,3 +193,8 @@ ballots, encrypted choices, aggregate results, exact-state vote retry and author
 administrator close. Explicit operator migration and enabled groups are required.
 Capability-gated web controls and Narzan integration use this contract; see [API contract](API.md#group-polls-165-development-candidate).
 No production install or completed store release is implied.
+
+Messenger1.6.6 adds an optional [group invitation-link candidate](docs/GROUP_LINKS.md):
+authenticated preview/join, owner/admin creation and exact revocation, bounded
+lifetime/uses and current site-policy enforcement. Explicit operator migration and
+production acceptance remain required; this source update deploys nothing.

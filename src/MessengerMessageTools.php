@@ -18,14 +18,14 @@ trait MessengerMessageTools {
         $this->installPinsSchema();
     }
     private function installMemberRateTable(string $table): void {
-        if(!in_array($table,['messenger_reaction_locks','messenger_pin_locks','messenger_poll_locks'],true))throw new \InvalidArgumentException('Unknown rate table.');
+        if(!in_array($table,['messenger_reaction_locks','messenger_pin_locks','messenger_poll_locks','messenger_group_link_locks'],true))throw new \InvalidArgumentException('Unknown rate table.');
         $db=$this->wire('database');$tail=$db->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql'?' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci':'';
         $db->exec('CREATE TABLE IF NOT EXISTS '.$table.' (user_id BIGINT PRIMARY KEY,window_started_at BIGINT NOT NULL DEFAULT 0,event_count INTEGER NOT NULL DEFAULT 0)'.$tail);
         // Explicit operator migration, including existing1.5.6 lock rows. No member-side DDL.
         foreach(['window_started_at'=>'BIGINT','event_count'=>'INTEGER']as$column=>$type){try{$db->query('SELECT '.$column.' FROM '.$table.' LIMIT 0');}catch(\PDOException $e){$db->exec('ALTER TABLE '.$table.' ADD COLUMN '.$column.' '.$type.' NOT NULL DEFAULT 0');}}
     }
     private function consumeMemberRate(User $actor,string $table): void {
-        if(!in_array($table,['messenger_reaction_locks','messenger_pin_locks','messenger_poll_locks'],true)||!$this->wire('database')->inTransaction())throw new WireException('Member rate lock required.');
+        if(!in_array($table,['messenger_reaction_locks','messenger_pin_locks','messenger_poll_locks','messenger_group_link_locks'],true)||!$this->wire('database')->inTransaction())throw new WireException('Member rate lock required.');
         $db=$this->wire('database');$q=$db->prepare('SELECT window_started_at,event_count FROM '.$table.' WHERE user_id=?'.$this->forUpdate($db));$q->execute([(int)$actor->id]);$row=$q->fetch(\PDO::FETCH_ASSOC);if(!$row)throw new WireException('Member rate lock required.');
         $now=time();$start=(int)$row['window_started_at'];$count=max(0,(int)$row['event_count']);if($now<$start||$now-$start>=60){$start=$now;$count=0;}
         if($count>=60)throw new MessengerMobileException('rate_limited','Too many changes. Try again shortly.',429);

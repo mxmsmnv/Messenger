@@ -6,11 +6,12 @@ node --check assets/messenger.js
 node --check assets/messenger-admin.js
 node --check assets/messenger-groups.js
 node --check assets/messenger-polls.js
+node --check assets/messenger-group-links.js
 node --check assets/messenger-media.js
 node --check assets/messenger-tools.js
 node --check assets/messenger-activity.js
 node tests/web-dates.cjs
-if [[ -d tests/web-dom/node_modules/jsdom ]]; then node tests/web-behavior.cjs; node tests/web-groups.cjs; node tests/web-polls.cjs; node tests/web-media.cjs; node tests/web-forwarding.cjs; node tests/web-reactions.cjs; node tests/web-pins.cjs; node tests/web-history-search.cjs; node tests/web-saved-messages.cjs; node tests/web-media-catalog.cjs; node tests/web-activity.cjs; node tests/web-activity-integration.cjs; else echo "Web DOM behavior: skipped (run npm ci --prefix tests/web-dom --ignore-scripts)"; fi
+if [[ -d tests/web-dom/node_modules/jsdom ]]; then node tests/web-behavior.cjs; node tests/web-groups.cjs; node tests/web-polls.cjs; node tests/web-group-links.cjs; node tests/web-media.cjs; node tests/web-forwarding.cjs; node tests/web-reactions.cjs; node tests/web-pins.cjs; node tests/web-history-search.cjs; node tests/web-saved-messages.cjs; node tests/web-media-catalog.cjs; node tests/web-activity.cjs; node tests/web-activity-integration.cjs; else echo "Web DOM behavior: skipped (run npm ci --prefix tests/web-dom --ignore-scripts)"; fi
 php tests/contracts.php
 php tests/upgrade-patch.php
 php tests/wirewall-integration.php
@@ -18,6 +19,7 @@ php tests/mobile-domain.php
 php tests/client-policy.php
 php tests/groups.php
 php tests/polls.php
+php tests/group-links.php
 php tests/forwarding.php
 php tests/reactions.php
 php tests/pins.php

@@ -75,6 +75,7 @@
             run(d,function(){return request('group-details',{}, {id:id});},function(g){
                 d.body.append(el('p','MessengerState',g.member_count+' members · '+g.role));
                 var admin=g.role==='owner'||g.role==='admin',owner=g.role==='owner';
+                if(admin&&host.links)d.body.append(action('Invitation link',function(){d.node.close();host.links.settings(id);}));
                 if(admin){var name=el('input','',undefined,'input');name.value=g.other_user.title;name.maxLength=100;name.setAttribute('aria-label','Group name');d.body.append(name,action('Save name',function(){mutate('rename',{title:name.value});}));
                     var selected=new Map();selection(d,selected);d.body.append(action('Invite selected people',function(){if(selected.size)mutate('invite',{user_ids:Array.from(selected.keys())});}));
                     var file=el('input','',undefined,'input');file.type='file';file.accept='image/jpeg,image/png,image/webp';file.setAttribute('aria-label','Choose group photo');var preview=el('img','MessengerGroupPhoto');preview.alt='Group photo preview';preview.hidden=true;var photo=null;

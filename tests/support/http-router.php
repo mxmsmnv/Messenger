@@ -6,7 +6,7 @@ require __DIR__.'/bootstrap.php';require dirname(__DIR__,2).'/src/MessengerMobil
 $m->services['cache']=new class {private array $rows=[];public function get($key){$r=$this->rows[$key]??null;return $r&&$r[1]>time()?$r[0]:null;}public function save($key,$value,$expires){$this->rows[$key]=[$value,$expires];return true;}public function delete($key){unset($this->rows[$key]);return true;}};
 if(getenv('MESSENGER_FIXTURE_SAVED')==='1')$m->set('saved_messages_enabled',1);
 if(getenv('MESSENGER_FIXTURE_TOOLS')==='1'){$operator=new class(99) extends User{public function isSuperuser(){return true;}};$m->installMessageTools($operator);$m->set('message_tools_enabled',1);}
-if(getenv('MESSENGER_FIXTURE_POLLS')==='1'){$operator=new class(99)extends User{public function isSuperuser(){return true;}};$m->installGroups($operator);$m->set('groups_enabled',1);$m->installGroupPolls($operator);}
+if(getenv('MESSENGER_FIXTURE_POLLS')==='1'){$operator=new class(99)extends User{public function isSuperuser(){return true;}};$m->installGroups($operator);$m->set('groups_enabled',1);$m->installGroupPolls($operator);$m->installGroupLinks($operator);}
 // Synthetic TLS only for fixture tests. Real HTTPS is a separate integration gate.
 $_SERVER['HTTPS']='on';
 $csrf=new class {public function getToken($name){return ['name'=>'fixture_csrf','value'=>'fixture_csrf_value'];}};

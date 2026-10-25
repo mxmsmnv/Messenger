@@ -4,6 +4,17 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.6] — development candidate, not installed
+
+- Authenticated group invitation links with encrypted random tokens, explicit
+  preview/join, bounded expiry/use count, exact revocation and safe creation retries.
+- Apply current site policy, blocks, member capacity, fresh history floors and
+  invitation quotas. Role/ownership changes revoke grants permanently.
+- Add capability-gated web controls and the companion Narzan contract; tokens are
+  sent only in POST bodies and shared in URL fragments. No anonymous membership.
+- Explicit operator migration only; serialize invitation budget and current grant
+  state, with real MySQL concurrent revocation coverage. Production is unchanged.
+
 ### [1.6.5] — development candidate, not installed
 
 - Group-poll backend/API with explicit operator schema, encrypted options/choices,

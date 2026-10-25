@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.5 (ProcessWire module version `165`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.6 (ProcessWire module version `166`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -634,3 +634,14 @@ Conversation locking precedes group/poll row locking, and state is reread with
 current locking reads so a blocked voter cannot vote after a concurrent close.
 
 Group vote/close events advance the group message revision. Global message deletion or expiry erases structured options and individual choices; only an immutable operation tombstone is retained for a redacted acceptance receipt. See [poll verification](docs/POLLS.md).
+
+## Group invitation links (1.6.6 development candidate)
+
+See the [complete group link contract](docs/GROUP_LINKS.md). Explicit administrator
+`installGroupLinks(User)` migration is required. Public methods are
+`groupMessagesPath(): ?string`, `groupLinksReady(): bool`,
+`groupLinkStatus(User,int)`, `createGroupLink(User,int,int,int,string)`,
+`revokeGroupLink(User,int,int)`, `previewGroupLink(User,string)` and
+`joinGroupLink(User,string)`. Current actor authorization is mandatory. Share token
+fragments only; use authenticated POST for preview/join. No anonymous membership,
+member-side schema creation or automatic joining is provided.

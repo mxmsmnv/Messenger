@@ -20,6 +20,7 @@ trait MessengerGroups {
     }
     public function groupRequest(User $actor,string $resource,string $method,array $body,array $query): array {
         $this->requireGroups($actor);
+        if(str_starts_with($resource,'group-link-'))return $this->groupLinkRequest($actor,$resource,$method,$body,$query);
         if(str_starts_with($resource,'group-poll')) {
             if($resource==='group-poll'&&$method==='GET'){$id=$query['message_id']??null;if(!is_string($id)||!preg_match('/^[1-9][0-9]{0,17}$/D',$id))throw new \InvalidArgumentException('Poll ID required.');return $this->groupPoll($actor,(int)$id);}
             if($method!=='POST')throw new \InvalidArgumentException('Poll action unavailable.');
@@ -95,6 +96,7 @@ trait MessengerGroups {
         if(!$ids || $clientId==='')throw new \InvalidArgumentException('Members and a client ID are required.');
         $clientId=$this->clientId($clientId);$hash=$this->contentFingerprint(json_encode([$title,$ids],JSON_THROW_ON_ERROR));
         $operation=function()use($actor,$title,$ids,$clientId,$hash):array{
+            $this->groupLinkActorLock($actor);
             $db=$this->wire('database');$q=$db->prepare('SELECT conversation_id,request_hash FROM messenger_groups WHERE created_by=? AND client_id=?');$q->execute([(int)$actor->id,$clientId]);$old=$q->fetch(\PDO::FETCH_ASSOC);
             if($old){if(!hash_equals($old['request_hash'],$hash))throw new MessengerMobileException('idempotency_conflict','Group creation conflicts with an earlier operation.',409);return $this->groupDetails((int)$old['conversation_id'],$actor);}
             $this->assertNewRecipientRate((int)$actor->id);$now=$this->now();
@@ -171,7 +173,7 @@ trait MessengerGroups {
     public function changeGroup(int $id,User $actor,string $action,array $body): array {
         $this->requireGroups($actor);
         return $this->atomic(function()use($id,$actor,$action,$body):array{
-            $g=$this->groupLock($id,$actor,$action!=='leave');$owner=(int)$g['owner_id']===(int)$actor->id;
+            $this->groupLinkActorLock($actor);$g=$this->groupLock($id,$actor,$action!=='leave');$owner=(int)$g['owner_id']===(int)$actor->id;
             if($action==='rename'){$title=$this->groupTitle($body['title']??'');$this->execute('UPDATE messenger_groups SET title=? WHERE conversation_id=?',[$this->encryptValue($title,'Messenger|group-title|'.$id),$id]);}
             elseif($action==='invite'){$ids=$this->groupIds($body['user_ids']??[],$actor);if(!$ids)throw new \InvalidArgumentException('Members required.');foreach($ids as$target)$this->inviteGroupMember($id,$actor,$target);}
             elseif($action==='remove'||$action==='leave'){
@@ -194,6 +196,8 @@ trait MessengerGroups {
                 if($input!==null){if(!is_array($input)||!is_string($input['data_base64']??null)||!is_string($input['filename']??null)||!is_string($input['mime_type']??null)||($input['kind']??'file')!=='file'||strlen($input['data_base64'])>699052)throw new \InvalidArgumentException('Group photo is too large.');$a=$this->validateAttachment($input);$bytes=base64_decode($a['data_base64'],true);if(strlen($bytes)>524288)throw new \InvalidArgumentException('Group photo is too large.');if(!in_array($a['mime_type'],['image/jpeg','image/png','image/webp'],true))throw new \InvalidArgumentException('Unsupported group photo.');$size=@getimagesizefromstring($bytes);if(!$size||$size[0]>1024||$size[1]>1024)throw new \InvalidArgumentException('Choose a JPEG, PNG or WebP group photo up to 1024 pixels.');$payload=$this->encryptValue(json_encode($a,JSON_THROW_ON_ERROR),'Messenger|group-avatar|'.$id);}
                 $this->execute('UPDATE messenger_groups SET avatar=?,avatar_version=avatar_version+1 WHERE conversation_id=?',[$payload,$id]);
             } else throw new \InvalidArgumentException('Invalid group action.');
+            if(in_array($action,['delete','transfer'],true))$this->invalidateGroupLinks($id);
+            elseif(in_array($action,['remove','role','leave'],true))$this->invalidateGroupLinks($id,$action==='leave'?(int)$actor->id:(int)$body['user_id']);
             $this->execute('UPDATE messenger_groups SET version=version+1 WHERE conversation_id=?',[$id]);$this->execute('UPDATE messenger_conversations SET updated_at=? WHERE id=?',[$this->now(),$id]);$this->audit('group_'.$action,$id,0,(int)$actor->id);
             return in_array($action,['delete','leave'],true)?['updated'=>true]:$this->groupDetails($id,$actor);
         });

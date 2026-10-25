@@ -235,6 +235,18 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/group-poll-vote/',{'message_id':pmid,'choice':0,'fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and json.loads(text)['result']['counts']==[1,0],'browser exact-state vote with CSRF')
             status,text,_=request('/messenger-api/v1/group-poll-close/',{'message_id':pmid},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['closed_at'] is not None,'HTTP poll close')
             status,text,_=request('/messenger-api/v1/group-poll-vote/',{'message_id':pmid,'choice':1},token=tokens['access_token']);check(status==403,'HTTP closed poll rejects changed vote')
+            link_body={'id':gid,'expires_in':86400,'max_uses':5,'client_id':'http_group_link_001'}
+            status,text,_=request('/messenger-api/v1/group-link-create/',link_body,token=tokens['access_token']);link=json.loads(text)['result']['link'];check(status==200 and link['active'] and len(link['token'])==43,'HTTP explicit bounded invitation link')
+            status,text,_=request('/messenger-api/v1/group-link-create/',link_body,token=tokens['access_token']);check(status==200 and json.loads(text)['result']['link']['id']==link['id'],'HTTP invitation creation retry is stable')
+            status,text,_=request('/messenger-api/v1/group-link-create/',link_body|{'max_uses':6},token=tokens['access_token']);check(status==409,'HTTP changed link operation conflicts')
+            status,text,_=request('/messenger-api/v1/group-link-preview/',{'token':link['token']},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['is_member'] and 'token' not in json.loads(text)['result'],'HTTP authenticated explicit preview')
+            status,text,_=request('/messenger-api/v1/group-link-preview/?token='+link['token'],token=tokens['access_token']);check(status>=400,'invitation token is never accepted in GET query')
+            status,text,_=request('/messenger-api/v1/group-link-join/',{'token':link['token']},browser=True);check(status==403,'browser invitation join requires CSRF')
+            status,text,_=request('/messenger-api/v1/group-link-join/',{'token':link['token'],'fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and json.loads(text)['result']['id']==gid,'browser explicit join respects existing membership')
+            status,text,_=request('/messenger-api/v1/group-link-create/',link_body|{'expires_in':True,'client_id':'http_link_invalid_001'},token=tokens['access_token']);check(status==400,'Boolean is not an invitation lifetime')
+            status,text,_=request('/messenger-api/v1/group-link-revoke/',{'id':gid,'link_id':link['id']},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['revoked'],'HTTP exact invitation revocation')
+            status,text,_=request('/messenger-api/v1/group-link-status/?id='+str(gid),token=tokens['access_token']);check(status==200 and json.loads(text)['result']['link']['token'] is None,'HTTP revoked invitation does not reveal credential')
+
             status,text,_=request('/messenger-api/v1/devices/',browser=True);check(status==403,'native device API never falls back to browser authority')
             def extra_device():
                 status,_,headers=request('/messenger-mobile/v1/authorize/',data|{'approve':'yes','fixture_csrf':'fixture_csrf_value','device_name':'Second HTTP fixture'},browser=True,form=True)
