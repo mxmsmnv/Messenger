@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.7 (ProcessWire module version `167`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.8 (ProcessWire module version `168`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -656,3 +656,13 @@ Discovery `group_mentions` and browser `mentions_supported` require installed sc
 Messages add actor-specific `mentioned` and encrypted-at-rest captured `mentions`
 entities; group summaries add own `mentions_only` and independent unread
 `last_mention`. No template-side SQL, recipient impersonation or automatic migration.
+
+## Group events (1.6.8 development candidate)
+
+See [the event, consent and operator contract](docs/GROUP_EVENTS.md). Public methods:
+`installGroupEvents`, `createGroupEvent`, `groupEvent`, `updateGroupEvent`,
+`respondGroupEvent`, `cancelGroupEvent`, `processGroupEventReminders`.
+Message `event` is actor-specific structured state; `group_events` and separate
+`group_event_reminders` capabilities gate controls. Response versions, current
+membership/visibility and per-member consent are mandatory. No automatic schema,
+worker/provider installation, browser-push registration or public attendee list.

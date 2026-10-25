@@ -41,6 +41,12 @@ try {
     $sender->sendMessage('ios','production:'.str_repeat('b',64),11,3,'scope',true);
     $last=end($GLOBALS['provider_requests']);$payload=json_decode($last['options'][CURLOPT_POSTFIELDS],true);
     check(str_starts_with($last['url'],'https://api.push.apple.com/')&&$payload['aps']['sound']==='default','production APNs and audible preference are explicit');
+    $sender->sendEventReminder('android','synthetic-registration',10,3,'scope',true,'2:3');$last=end($GLOBALS['provider_requests']);$message=json_decode($last['options'][CURLOPT_POSTFIELDS],true)['message'];
+    check($message['data']['kind']==='event_reminder'&&$message['data']['narzan_reminder_revision']==='2:3','event FCM distinguishes explicit reminder revision');check($message['android']['ttl']==='300s'&&!isset($message['notification'])&&!isset($message['data']['title']),'event FCM uses short metadata-only delivery');
+    $sender->sendEventReminder('ios','production:'.str_repeat('b',64),10,3,'scope',false,'2:3');$last=end($GLOBALS['provider_requests']);$payload=json_decode($last['options'][CURLOPT_POSTFIELDS],true);$headers=$last['options'][CURLOPT_HTTPHEADER];
+    check($payload['kind']==='event_reminder'&&$payload['aps']['alert']['body']==='Event reminder'&&!isset($payload['aps']['sound']),'event APNs uses generic alert and explicit silence');check(in_array('apns-push-type: alert',$headers,true)&&in_array('apns-topic: org.smnv.narzan.dev',$headers,true),'event APNs never uses VoIP');
+    $expiry=array_values(array_filter($headers,static fn($h)=>str_starts_with($h,'apns-expiration: ')))[0];check((int)substr($expiry,17)<=time()+300&&(int)substr($expiry,17)>=time()+295,'event APNs expires in five minutes');
+    $count=count($GLOBALS['provider_requests']);try{$sender->sendEventReminder('ios','production:'.str_repeat('b',64),10,3,'scope',false,'invalid');throw new \RuntimeException('Invalid revision accepted');}catch(\InvalidArgumentException $e){check(count($GLOBALS['provider_requests'])===$count,'invalid reminder revision never reaches provider transport');}
     $GLOBALS['provider_response']=[404,'{}'];
     try{$sender->sendMessage('ios','production:'.str_repeat('b',64),12,3,'scope',true);throw new \RuntimeException('Expected APNs request failure');}catch(\RuntimeException $e){check($e->getMessage()==='Message push provider rejected delivery.','Apple404 is a transport failure, not a revoked device');}
     $GLOBALS['provider_response']=[410,'{}'];

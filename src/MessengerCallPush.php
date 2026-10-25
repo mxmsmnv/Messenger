@@ -56,12 +56,21 @@ final class MessengerCallPush {
     }
     /** Standard notification tokens/topics only. Never send an ordinary message via VoIP. */
     public function sendMessage(string $platform,string $token,int $messageId,int $chatId,string $account,bool $sound):bool {
+        return $this->sendContentNotification($platform,$token,$messageId,$chatId,$account,$sound,null);
+    }
+    public function sendEventReminder(string $platform,string $token,int $messageId,int $chatId,string $account,bool $sound,string $revision):bool {
+        if(!preg_match('/^[1-9][0-9]{0,17}:[1-9][0-9]{0,17}$/D',$revision))throw new \InvalidArgumentException('Invalid event reminder revision.');
+        return $this->sendContentNotification($platform,$token,$messageId,$chatId,$account,$sound,$revision);
+    }
+    private function sendContentNotification(string $platform,string $token,int $messageId,int $chatId,string $account,bool $sound,?string $reminder):bool {
         if($messageId<1||$chatId<1||$account===''||strlen($account)>2048)throw new \InvalidArgumentException('Invalid message push.');
         $payload=['kind'=>'message','narzan_message_id'=>(string)$messageId,'narzan_chat_id'=>(string)$chatId,'narzan_account'=>$account];
-        $collapse=substr(hash('sha256',$account.'|'.$chatId),0,64);
+        $collapse=substr(hash('sha256',$account.'|'.$chatId.($reminder===null?'':'|event|'.$messageId.'|'.$reminder)),0,64);
+        if($reminder!==null){$payload['kind']='event_reminder';$payload['narzan_reminder_revision']=$reminder;}
+        $ttl=$reminder===null?86400:300;
         if($platform==='android') {
             $project=(string)($this->config['firebase_project']??'');if(!preg_match('/^[a-z][a-z0-9-]{4,62}$/D',$project))throw new \RuntimeException('Firebase project unavailable.');
-            [$status,$response]=$this->post('https://fcm.googleapis.com/v1/projects/'.$project.'/messages:send',['Authorization: Bearer '.$this->firebaseAccess(),'Content-Type: application/json'],json_encode(['message'=>['token'=>$token,'data'=>$payload,'android'=>['priority'=>'HIGH','ttl'=>'86400s']]],JSON_THROW_ON_ERROR));
+            [$status,$response]=$this->post('https://fcm.googleapis.com/v1/projects/'.$project.'/messages:send',['Authorization: Bearer '.$this->firebaseAccess(),'Content-Type: application/json'],json_encode(['message'=>['token'=>$token,'data'=>$payload,'android'=>['priority'=>'HIGH','ttl'=>$ttl.'s']]],JSON_THROW_ON_ERROR));
         }elseif($platform==='ios') {
             if(!preg_match('/^(sandbox|production):([a-f0-9]{64,200})$/D',$token,$registration))throw new \RuntimeException('Invalid Apple message registration.');
             $key=(string)($this->config['apns_key_id']??'');$team=(string)($this->config['apns_team_id']??'');
@@ -71,8 +80,8 @@ final class MessengerCallPush {
             $jwt.='.'.$this->b64(self::rawEs256($signature));
             $topic=(string)($this->config['apns_bundle_id']??'org.smnv.narzan.dev');if(!preg_match('/^[a-zA-Z0-9.-]+$/D',$topic))throw new \RuntimeException('Invalid Apple push topic.');
             $host=$registration[1]==='sandbox'?'api.sandbox.push.apple.com':'api.push.apple.com';
-            $aps=['alert'=>['title'=>'Narzan','body'=>'New message'],'thread-id'=>$collapse];if($sound)$aps['sound']='default';
-            [$status,$response]=$this->post('https://'.$host.'/3/device/'.$registration[2],['authorization: bearer '.$jwt,'apns-topic: '.$topic,'apns-push-type: alert','apns-priority: 10','apns-expiration: '.(time()+86400),'apns-collapse-id: '.$collapse,'content-type: application/json'],json_encode(['aps'=>$aps]+$payload,JSON_THROW_ON_ERROR),true);
+            $aps=['alert'=>['title'=>'Narzan','body'=>$reminder===null?'New message':'Event reminder'],'thread-id'=>$collapse];if($sound)$aps['sound']='default';
+            [$status,$response]=$this->post('https://'.$host.'/3/device/'.$registration[2],['authorization: bearer '.$jwt,'apns-topic: '.$topic,'apns-push-type: alert','apns-priority: 10','apns-expiration: '.(time()+$ttl),'apns-collapse-id: '.$collapse,'content-type: application/json'],json_encode(['aps'=>$aps]+$payload,JSON_THROW_ON_ERROR),true);
         }else throw new \RuntimeException('Unsupported message push platform.');
         if($status>=200&&$status<300)return true;
         if($platform==='ios'&&$status===410)return false;

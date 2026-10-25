@@ -4,6 +4,18 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.8] — development candidate, not installed
+
+- Add opt-in group events: encrypted details/RSVPs, explicit timezone/UTC instant,
+  aggregate current-member attendance, version-bound responses, author/admin edits
+  and cancellation, and capability-gated browser/Narzan controls.
+- Preserve immutable creation retries and hidden acceptance. Edits require fresh
+  attendance/reminder consent; ordinary message edits cannot bypass event controls.
+  Cancellation has a readable fallback for older clients; deletion erases content.
+- Add a separate bounded standard-push reminder worker with current consent,
+  membership, visibility, mute, device and retention checks. Short-lived metadata
+  payloads never use VoIP. No production worker, provider or migration is activated.
+
 ### [1.6.7] — development candidate, not installed
 
 - Capture exact current-member group mentions with encrypted names, browser/native

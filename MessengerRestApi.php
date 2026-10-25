@@ -305,6 +305,7 @@ final class MessengerRestApi extends Wire {
             $result['activity_supported']=$this->messenger->activityReady();
             $result['saved_messages_supported']=$this->messenger->savedMessagesReady();
 			$result['groups_supported']=$this->messenger->groupsReady();
+            $result['events_supported']=$this->messenger->groupEventsReady();$result['event_reminders_supported']=$this->messenger->groupEventsReady()&&$this->messenger->messagePushReady();
             $result['polls_supported']=$this->messenger->pollsReady();
             $result['mentions_supported']=$this->messenger->mentionsReady();$result['group_links_supported']=$this->messenger->groupLinksReady();$result['messages_path']=$this->messenger->groupMessagesPath();
             $result['forwarding_supported']=$this->messenger->forwardingReady();

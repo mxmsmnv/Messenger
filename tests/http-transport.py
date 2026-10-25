@@ -258,6 +258,33 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/group-mentions/?id='+str(gid)+'&user_id=22',token=tokens['access_token']);check(status==200 and json.loads(text)['result']['items']==mentions['items'],'a forged target cannot select another members mentions')
 
 
+            # New bounded fixture phase. Keep the production60writes/min budget intact;
+            # dedicated auth/rate tests cover it rather than exhausting it incidentally here.
+            import sqlite3
+            with sqlite3.connect(folder+'/fixture.sqlite3') as fixture_db: fixture_db.execute('DELETE FROM messenger_mobile_rates')
+            event_details={'title':'Coffee on Sunday','description':'Bring a warm drink','location':'Harbour','starts_at':int(time.time())+86400,'timezone':'Europe/Oslo','duration_minutes':60}
+            event_body={'id':gid,'details':event_details,'client_id':'http_event_create_001'}
+            status,text,_=request('/messenger-api/v1/group-event-create/',event_body);check(status in (401,403),'HTTP event writes require authentication')
+            status,text,_=request('/messenger-api/v1/group-event-create/',event_body,browser=True);check(status==403,'browser event creation requires CSRF')
+            status,text,_=request('/messenger-api/v1/group-event-create/',event_body,token=tokens['access_token']);created=json.loads(text)['result'];emid=created['message_id'];check(status==200 and created['ack_visible'] and created['accepted_client_id']==event_body['client_id'] and created['event']['version']==1,'HTTP correlated event creation')
+            status,text,_=request('/messenger-api/v1/group-event-create/',event_body,token=tokens['access_token']);check(status==200 and json.loads(text)['result']['message_id']==emid,'HTTP event retry creates no duplicate')
+            status,text,_=request('/messenger-api/v1/group-event-create/',event_body|{'details':event_details|{'title':'Changed'}},token=tokens['access_token']);check(status==409,'HTTP immutable event creation conflict')
+            status,text,_=request('/messenger-api/v1/group-event/?message_id='+str(emid),token=tokens['access_token']);check(status==200 and json.loads(text)['result']['conversation_id']==gid and 'request_hash' not in text and 'menc:v1:' not in text,'HTTP authorized event read has no fingerprints/ciphertext')
+            response={'message_id':emid,'answer':'yes','reminder_minutes':None}
+            status,text,_=request('/messenger-api/v1/group-event-respond/',response,token=tokens['access_token']);check(status==400,'RSVP requires the actually viewed version')
+            status,text,_=request('/messenger-api/v1/group-event-respond/',response|{'version':True},token=tokens['access_token']);check(status==400,'Boolean is not an event version')
+            status,text,_=request('/messenger-api/v1/group-event-respond/',response|{'version':1,'user_id':22},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['own_answer']=='yes','RSVP binds current actor despite forged target')
+            status,text,_=request('/messenger-api/v1/group-event-respond/',response|{'version':1,'reminder_minutes':5},token=tokens['access_token']);check(status==403,'unconfigured notification backend cannot promise reminders: '+str(status)+' '+text[:250])
+            status,text,_=request('/messenger-api/v1/group-event-respond/',response|{'version':1},browser=True);check(status==403,'browser RSVP needs CSRF')
+            changed=event_details|{'location':'Park'}
+            status,text,_=request('/messenger-api/v1/group-event-update/',{'message_id':emid,'version':1,'details':changed},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['version']==2 and json.loads(text)['result']['counts']['yes']==0,'versioned event change clears previous consent')
+            status,text,_=request('/messenger-api/v1/group-event-respond/',response|{'version':1},token=tokens['access_token']);check(status==409,'old RSVP cannot accept a rescheduled event')
+            status,text,_=request('/messenger-api/v1/group-event-create/',event_body|{'client_id':'http_event_invalid_001','details':event_details|{'starts_at':str(event_details['starts_at'])}},token=tokens['access_token']);check(status==400,'event instant requires strict integer')
+            status,text,_=request('/messenger-api/v1/group-event-create/',event_body|{'client_id':'http_event_invalid_002','details':event_details|{'timezone':'Bogus/Zone'}},token=tokens['access_token']);check(status==400,'unknown event timezone rejected')
+            status,text,_=request('/messenger-api/v1/group-event-cancel/',{'message_id':emid,'version':1},token=tokens['access_token']);check(status==409,'stale cancel cannot silently cancel a changed event')
+            status,text,_=request('/messenger-api/v1/group-event-cancel/',{'message_id':emid,'version':2},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['cancelled_at'] is not None,'HTTP explicit event cancellation')
+            status,text,_=request('/messenger-api/v1/group-event-respond/',response|{'version':3},token=tokens['access_token']);check(status==403,'cancelled event rejects new response')
+
             status,text,_=request('/messenger-api/v1/devices/',browser=True);check(status==403,'native device API never falls back to browser authority')
             def extra_device():
                 status,_,headers=request('/messenger-mobile/v1/authorize/',data|{'approve':'yes','fixture_csrf':'fixture_csrf_value','device_name':'Second HTTP fixture'},browser=True,form=True)

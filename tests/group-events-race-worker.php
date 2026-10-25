@@ -1,0 +1,6 @@
+<?php declare(strict_types=1);namespace ProcessWire;
+$root='';$actorId=0;$mid=0;foreach(array_slice($argv,1)as$arg){if(str_starts_with($arg,'--root='))$root=rtrim(substr($arg,7),'/');if(str_starts_with($arg,'--actor='))$actorId=(int)substr($arg,8);if(str_starts_with($arg,'--message='))$mid=(int)substr($arg,10);}
+if(!$root||$actorId<1||$mid<1||trim((string)@file_get_contents(dirname($root).'/.narzan-disposable'))!=='narzan-groups-integration-v1')throw new \RuntimeException('Owned clone required.');
+require $root.'/index.php';if(!preg_match('/^narzan_groups_[a-f0-9]{8}$/D',(string)wire('database')->query('SELECT DATABASE()')->fetchColumn()))throw new \RuntimeException('Owned clone database required.');
+$m=wire('modules')->get('Messenger');if(realpath((new \ReflectionClass($m))->getFileName())!==realpath($root.'/site/modules/Messenger/Messenger.module.php'))throw new \RuntimeException('Owned candidate runtime required.');$m->set('groups_enabled',1);$actor=wire('users')->get($actorId);wire('users')->setCurrentUser($actor);
+try{$m->respondGroupEvent($actor,$mid,'yes',null,1);echo "event-worker:accepted\n";}catch(WirePermissionException $e){echo "event-worker:denied\n";}catch(MessengerMobileException $e){echo 'event-worker:denied:'.$e->apiCode."\n";}
