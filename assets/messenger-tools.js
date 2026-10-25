@@ -11,6 +11,44 @@
    toolbar.append(host.el('span','',selected.size+' selected'),button('Forward selected',function(){choose(source,Array.from(selected.values()));}),button('Clear selection',function(){selected.clear();host.thread.querySelectorAll('[data-forward-select]').forEach(function(n){n.checked=false;});redraw();}));
    var messages=host.thread.querySelector('[data-messages]');if(messages)messages.before(toolbar);
   }
+  var pinBusy=new Set();
+  function pinWrite(resource,payload,d,done){
+   var key=resource+':'+payload.id+':'+(payload.message_id||0)+':'+(payload.scope||'');if(pinBusy.has(key)||(d&&d.node.getAttribute('aria-busy')==='true'))return;
+   pinBusy.add(key);var controls=d?Array.from(d.node.querySelectorAll('input,button')).filter(function(n){return n.textContent!=='Close';}).map(function(n){return[n,n.disabled];}):[];controls.forEach(function(c){c[0].disabled=true;});if(d){d.node.setAttribute('aria-busy','true');d.status.textContent='Saving…';}
+   var abort=new AbortController(),timer=setTimeout(function(){abort.abort();},30000);
+   return host.request(resource,{method:'POST',body:payload,signal:abort.signal}).then(function(result){
+    if(!result||result.id!==payload.id||result.pinned!==payload.pinned||(resource==='pin-message'&&(result.message_id!==payload.message_id||result.scope!==payload.scope)))throw Error('The site did not confirm the pin.');
+    host.pinRefresh(payload.id);if(done&&(!d||d.node.isConnected))done();
+   }).catch(function(e){if(d&&d.node.isConnected)d.status.textContent=e.message;else host.say(e.message,true);}).finally(function(){clearTimeout(timer);pinBusy.delete(key);controls.forEach(function(c){c[0].disabled=c[1];});if(d)d.node.removeAttribute('aria-busy');});
+  }
+  function pinPreview(item){var text=String(item.attachment?item.attachment.filename:item.body||''),points=Array.from(text);return points.length>200?points.slice(0,200).join('')+'…':text;}
+  function pinDialog(title){
+   var node=host.el('dialog','MessengerDialog MessengerGroupDialog',undefined,'dialog'),head=host.el('header','MessengerGroupHeader'),body=host.el('div','MessengerGroupBody'),status=host.el('p','MessengerState');status.setAttribute('role','status');head.append(host.el('h2','',title),button('Close',function(){node.close();}));node.append(head,body,status);host.root.append(node);node.addEventListener('close',function(){node.remove();});node.showModal();return{node:node,body:body,status:status};
+  }
+  function pinsRead(d,id,done){d.status.textContent='Loading…';return host.request('pins',{}, {id:id}).then(function(result){if(!result||!Array.isArray(result.items)||result.items.length>10)throw Error('Invalid pinned messages.');if(d.node.isConnected){d.status.textContent='';done(result);}}).catch(function(e){if(d.node.isConnected){d.status.textContent=e.message;d.body.append(button('Retry',function(){d.body.replaceChildren();pinsRead(d,id,done);}));}});}
+  function pinMessage(item,id){
+   var d=pinDialog('Pin message');d.body.append(host.el('p','',pinPreview(item)));
+   pinsRead(d,id,function(result){
+    var check=host.el('input'),label=host.el('label','MessengerForwardCheck');check.type='checkbox';label.append(check,host.el('span','','For everyone'));if(result.can_pin_shared)d.body.append(label);else check.disabled=true;
+    var state=host.el('p','','Only for me'),send=button('',function(){var which=check.checked?'everyone':'personal',exists=result.items.some(function(p){return p.scope===which&&p.message.id===item.id;});pinWrite('pin-message',{id:id,message_id:item.id,scope:which,pinned:!exists},d,function(){d.node.close();});});
+    function redraw(){var which=check.checked?'everyone':'personal';state.textContent=check.checked?'For everyone. With five shared pins, a new one replaces the oldest.':'Only for me';send.textContent=result.items.some(function(p){return p.scope===which&&p.message.id===item.id;})?'Unpin':'Pin';}
+    check.addEventListener('change',redraw);redraw();d.body.append(state,send);
+   });
+  }
+  function pinList(id){var d=pinDialog('Pinned messages');pinsRead(d,id,function(result){
+   if(!result.items.length)d.body.append(host.el('p','','No pinned messages.'));
+   result.items.forEach(function(pin){var row=host.el('section','MessengerPinRow');row.append(host.el('small','',pin.scope==='personal'?'Only for me':'For everyone'),host.el('p','',pinPreview(pin.message)),button('Go to message',function(){d.status.textContent='Loading…';host.jumpPinned(id,pin.message.id).then(function(ok){if(ok&&d.node.isConnected)d.node.close();}).catch(function(e){if(d.node.isConnected)d.status.textContent=e.message;});}));
+    if(pin.scope==='personal'||result.can_pin_shared)row.append(button('Unpin',function(){pinWrite('pin-message',{id:id,message_id:pin.message.id,scope:pin.scope,pinned:false},d,function(){d.node.close();pinList(id);});}));d.body.append(row);
+   });
+  });}
+  function threadActions(chat,actions){if(!host.pins||chat.request_state!=='accepted')return;var b=button(chat.pinned_at?'Unpin chat':'Pin chat',function(){var current=host.currentChat();if(current&&current.id===chat.id)pinWrite('pin-chat',{id:chat.id,pinned:!current.pinned_at});});b.dataset.chatPin='';actions.append(b,button('Pinned messages',function(){pinList(chat.id);}));}
+  function threadPinLabel(chat){var toggle=host.thread.querySelector('[data-chat-pin]');if(toggle)toggle.textContent=chat.pinned_at?'Unpin chat':'Pin chat';}
+  function threadPins(chat){
+   if(!host.pins||chat.request_state!=='accepted')return;
+   var old=host.thread.querySelector('[data-pin-bar]');if(old)old.remove();var bar=host.el('div','MessengerPinsBar');bar.dataset.pinBar='';var list=host.thread.querySelector('[data-messages]');if(!list)return;list.before(bar);
+   threadPinLabel(chat);
+   host.request('pins',{}, {id:chat.id}).then(function(result){if(!bar.isConnected||!result.items||!result.items.length)return;var first=result.items[0].message;bar.append(button('Pinned messages ('+result.items.length+'): '+(pinPreview(first)),function(){pinList(chat.id);}));}).catch(function(){/* Existing chat navigation/composer stays usable offline. */});
+  }
   var reactionBusy=new Set(),emojiList=['👍','❤️','😂','😮','😢','🙏'];
   function reactionPicker(item,chatId){
    var d=host.el('dialog','MessengerDialog MessengerGroupDialog',undefined,'dialog'),head=host.el('header','MessengerGroupHeader'),body=host.el('div','MessengerGroupBody'),status=host.el('p','MessengerState');status.setAttribute('role','status');
@@ -33,6 +71,7 @@
   }
   function attach(article,item,chatId){
    attachReactions(article,item,chatId);
+   if(host.pins&&(!host.canPin||host.canPin(chatId))&&!item.deleted_at&&Number.isSafeInteger(item.id)&&item.id>0){var c=article.querySelector('.MessengerMessage-controls');if(c)c.append(button('Pin',function(){pinMessage(item,chatId);}));}
    if(!Number.isSafeInteger(item.id)||item.id<1||item.deleted_at||!/^[a-f0-9]{64}$/.test(item.content_revision||''))return;
    var controls=article.querySelector('.MessengerMessage-controls');if(!controls)return;
    var label=host.el('label','MessengerForwardCheck'),check=host.el('input');check.type='checkbox';check.dataset.forwardSelect='';check.checked=selected.has(item.id);check.setAttribute('aria-label','Select message '+item.id);label.append(check,host.el('span','','Select'));
@@ -71,6 +110,6 @@
    function load(more){var epoch=++generation,before=more?cursor:null;status.textContent='Loading chats…';host.request('inbox',{}, {scope:folder,limit:30,include_groups:host.groups?'1':'0',before:before||''}).then(function(page){if(!d.isConnected||epoch!==generation)return;loaded=(more?loaded:[]).concat(page.items.filter(function(c){return c.state==='active'&&c.request_state==='accepted'&&!c.blocked&&c.can_send===true;}));loaded=loaded.filter(function(c,i,a){return a.findIndex(function(x){return x.id===c.id;})===i;});cursor=page.next_cursor&&page.next_cursor!==before?page.next_cursor:null;status.textContent='';render();}).catch(function(e){error(e);if(d.isConnected)body.append(button('Retry',function(){load(more);}));});}
    render();if(!pending)load(false);
   }
-  return{attach:attach,reset:reset,redraw:redraw};
+  return{attach:attach,reset:reset,redraw:redraw,threadActions:threadActions,threadPins:threadPins,threadPinLabel:threadPinLabel};
  };
 })();

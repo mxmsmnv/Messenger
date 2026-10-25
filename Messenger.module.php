@@ -4,6 +4,7 @@ require_once __DIR__ . '/src/MessengerCalls.php';
 require_once __DIR__ . '/src/MessengerGroups.php';
 require_once __DIR__ . '/src/MessengerMessageTools.php';
 require_once __DIR__ . '/src/MessengerReactions.php';
+require_once __DIR__ . '/src/MessengerPins.php';
 require_once __DIR__ . '/src/MessengerMessagePush.php';
 require_once __DIR__ . '/src/MessengerBroadcasts.php';
 require_once __DIR__ . '/src/MessengerMobileAuth.php';
@@ -18,6 +19,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerGroups;
 	use MessengerMessageTools;
 	use MessengerReactions;
+	use MessengerPins;
 	use MessengerBroadcasts;
 	use MessengerCalls;
 	use MessengerMessagePush;
@@ -25,7 +27,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 156;
+	public const VERSION = 157;
 	private const REACTION_EMOJI=['👍','❤️','😂','😮','😢','🙏'];
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
@@ -50,7 +52,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 156,
+			'version' => 157,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -504,7 +506,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$sql = 'SELECT c.*,p.last_read_message_id,p.archived_at,p.muted_until,p.email_mode,p.hidden_through_message_id,(SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` um WHERE um.conversation_id=c.id AND um.id>p.last_read_message_id AND um.id>p.hidden_through_message_id AND um.sender_user_id<>p.user_id AND um.deleted_at IS NULL AND (um.expires_at IS NULL OR um.expires_at>' . time() . ') AND um.id NOT IN (SELECT message_id FROM `' . self::TABLE_MESSAGE_HIDES . '` WHERE user_id=p.user_id)) unread_count FROM `' . self::TABLE_CONVERSATIONS . '` c JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=c.id WHERE ' . implode(' AND ', $where) . ' ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.id DESC LIMIT ' . $limit;
 		$stmt = $this->wire('database')->prepare($sql); $stmt->execute($params);
 		$items = [];
-		foreach($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) { $item=$this->decorateConversation($row,$actor);if($item)$items[]=$item; }
+		foreach($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) { $item=$this->decorateChatPin($this->decorateConversation($row,$actor),$actor);if($item)$items[]=$item; }
 		$last = end($items);
 		return [
 			'items' => $items,
@@ -527,7 +529,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$stmt = $this->wire('database')->prepare('SELECT c.*,p.last_read_message_id,p.archived_at,p.muted_until,p.email_mode,p.hidden_through_message_id FROM `' . self::TABLE_CONVERSATIONS . '` c JOIN `' . self::TABLE_PARTICIPANTS . '` p ON p.conversation_id=c.id AND p.user_id=? WHERE ' . $field . '=? LIMIT 1');
 		$stmt->execute([(int)$actor->id, $identifier]);
 		$row = $stmt->fetch(\PDO::FETCH_ASSOC);
-		return $row ? $this->decorateConversation($row, $actor) : [];
+		return $row ? $this->decorateChatPin($this->decorateConversation($row, $actor),$actor) : [];
 	}
 
 	public function conversationMessages(int $conversationId, User $actor, ?int $beforeId = null, ?int $afterId = null, int $limit = 50): array {
@@ -873,7 +875,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=156) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=157) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 
@@ -902,7 +904,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$otherId=(int)$row['requester_id']===(int)$actor->id?(int)$row['recipient_id']:(int)$row['requester_id']; $other=$this->wire('users')->get($otherId);
 		$row['id']=(int)$row['id']; $row['requester_id']=(int)$row['requester_id']; $row['recipient_id']=(int)$row['recipient_id']; $row['last_message_id']=(int)$row['last_message_id']; $row['last_read_message_id']=(int)($row['last_read_message_id']??0); $row['unread_count']=(int)($row['unread_count']??0);
 		$row['auto_delete_seconds']=(int)($row['auto_delete_seconds']??0);$row['auto_delete_at']=isset($row['auto_delete_at'])?(int)$row['auto_delete_at']:null;$row['muted_until_epoch']=$row['muted_until']?strtotime((string)$row['muted_until']):null;$row['muted']=$row['muted_until_epoch']!==null&&$row['muted_until_epoch']>time();
-		$row['message_revision']=$this->scalar("SELECT COUNT(*) FROM messenger_audit WHERE conversation_id=? AND (action IN ('message_expiry_changed','message_expired','message_edited','message_deleted','message_reacted') OR (action IN ('message_hidden','conversation_deleted_for_user') AND actor_user_id=?))",[(int)$row['id'],(int)$actor->id]);
+		$row['message_revision']=$this->scalar("SELECT COUNT(*) FROM messenger_audit WHERE conversation_id=? AND (action IN ('message_expiry_changed','message_expired','message_edited','message_deleted','message_reacted','message_pinned_shared') OR (action IN ('message_hidden','conversation_deleted_for_user','message_pinned_personal') AND actor_user_id=?))",[(int)$row['id'],(int)$actor->id]);
 		$row['client_policy']=$this->effectiveClientPolicy();
 		$row['sort_at']=(string)($row['last_message_at']?:$row['created_at']);$row['sort_at_iso']=date('c',strtotime($row['sort_at']));
 		$row['blocked_by_actor']=$this->isBlockedBy((int)$actor->id,$otherId);

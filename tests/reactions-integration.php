@@ -2,6 +2,7 @@
 // Reuses its guarded disposable real-ProcessWire setup and independent media checks.
 require __DIR__.'/forwarding-integration.php';
 $before=$GLOBALS['checks'];
+$db->prepare('INSERT IGNORE INTO messenger_reaction_locks(user_id) VALUES(?)')->execute([(int)$a->id]);$db->exec('ALTER TABLE messenger_reaction_locks DROP COLUMN window_started_at');$db->exec('ALTER TABLE messenger_reaction_locks DROP COLUMN event_count');check(!$m->reactionsReady(),'old MySQL lock schema stays unavailable until explicit migration');$m->installMessageTools($operator);$q=$db->prepare('SELECT event_count FROM messenger_reaction_locks WHERE user_id=?');$q->execute([(int)$a->id]);$count=$q->fetchColumn();check($count===0||$count==='0','operator preserves legacy MySQL member lock row');
 check($m->reactionsReady(),'real reaction schema ready');$revision=$as($a,fn()=>$m->conversationMessages($source,$a,$eid+1,$eid-1,1))[0]['content_revision'];
 $one=$as($a,fn()=>$m->reactToMessage($a,$eid,'👍'));check($one['reactions'][0]['count']===1&&$one['reactions'][0]['mine'],'real actor reaction');
 $two=$as($b,fn()=>$m->reactToMessage($b,$eid,'👍'));check($two['reactions'][0]['count']===2,'real MySQL aggregate');check($two['content_revision']===$revision,'reaction does not change selection revision');

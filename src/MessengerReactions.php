@@ -4,12 +4,12 @@
 trait MessengerReactions {
     public function reactionsReady(): bool {
         if(!(bool)$this->message_tools_enabled)return false;
-        try{return $this->wire('database')->query('SELECT message_id,user_id,emoji,created_at FROM messenger_reactions LIMIT 0')!==false&&$this->wire('database')->query('SELECT user_id FROM messenger_reaction_locks LIMIT 0')!==false;}
+        try{return $this->wire('database')->query('SELECT message_id,user_id,emoji,created_at FROM messenger_reactions LIMIT 0')!==false&&$this->wire('database')->query('SELECT user_id,window_started_at,event_count FROM messenger_reaction_locks LIMIT 0')!==false;}
         catch(\PDOException $e){return false;}
     }
     private function installReactionsSchema(): void {
         $db=$this->wire('database');$mysql=$db->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql';
-        $db->exec('CREATE TABLE IF NOT EXISTS messenger_reaction_locks (user_id BIGINT PRIMARY KEY)'.($mysql?' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci':''));
+        $this->installMemberRateTable('messenger_reaction_locks');
         $db->exec('CREATE TABLE IF NOT EXISTS messenger_reactions (message_id BIGINT NOT NULL,user_id BIGINT NOT NULL,emoji TEXT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(message_id,user_id))'.($mysql?' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci':''));
     }
     private function reactionsPresentation(array $messages,User $actor): array {
@@ -48,8 +48,7 @@ trait MessengerReactions {
             if(!$row||$row['id']!==$messageId||!empty($row['deleted_at'])||($row['moderation_state']??'visible')!=='visible')throw new WirePermissionException('Message unavailable.');
             $q=$db->prepare('SELECT emoji FROM messenger_reactions WHERE message_id=? AND user_id=?');$q->execute([$messageId,(int)$actor->id]);$stored=$q->fetchColumn();$previous=$stored===false?null:$this->decryptValue((string)$stored,'Messenger|reaction|'.$messageId.'|'.(int)$actor->id);
             if($previous===$emoji)return $row;
-            $q=$db->prepare("SELECT COUNT(*) FROM messenger_audit WHERE actor_user_id=? AND action='message_reacted' AND created_at>=?");$q->execute([(int)$actor->id,gmdate('Y-m-d H:i:s',time()-60)]);
-            if((int)$q->fetchColumn()>=60)throw new MessengerMobileException('rate_limited','Too many reactions. Try again shortly.',429);
+            $this->consumeMemberRate($actor,'messenger_reaction_locks');
             $db->prepare('DELETE FROM messenger_reactions WHERE message_id=? AND user_id=?')->execute([$messageId,(int)$actor->id]);
             if($emoji!==null)$db->prepare('INSERT INTO messenger_reactions(message_id,user_id,emoji,created_at) VALUES(?,?,?,?)')->execute([$messageId,(int)$actor->id,$this->encryptValue($emoji,'Messenger|reaction|'.$messageId.'|'.(int)$actor->id),time()]);
             $this->audit('message_reacted',$conversationId,$messageId,(int)$actor->id);

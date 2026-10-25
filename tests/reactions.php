@@ -24,4 +24,10 @@ for($i=0;$i<60;$i++)$m->reactToMessage($a,$mid,$i%2===0?'👍':'❤️');
 try{$m->reactToMessage($a,$mid,'😂');throw new \RuntimeException('Reaction rate not enforced');}catch(MessengerMobileException $e){check($e->apiCode==='rate_limited','bounded rate stops state-changing writes');}
 check($m->reactToMessage($a,$mid,'❤️')['reactions'][0]['count']===1,'exact repeat remains idempotent after rate limit');check(!$db->inTransaction(),'rate failure closes its transaction');
 $db->exec('DROP TABLE messenger_reaction_locks');check(!$m->reactionsReady(),'incomplete schema stays unavailable');denied(fn()=>$m->reactToMessage($a,$mid,null));
+$zone=date_default_timezone_get();try{
+    date_default_timezone_set('Pacific/Kiritimati');[$m,$db,$a,$b]=fixture();$db->exec('CREATE TABLE messenger_reaction_locks (user_id BIGINT PRIMARY KEY)');$db->exec('INSERT INTO messenger_reaction_locks(user_id) VALUES(11)');$m->installMessageTools($operator);$m->set('message_tools_enabled',1);$m->set('first_contact_mode','open');check((int)$db->query('SELECT event_count FROM messenger_reaction_locks WHERE user_id=11')->fetchColumn()===0,'operator adds epoch-window columns without dropping legacy lock row');
+    $r=$m->startConversation($a,$b,'Timezone reaction','reaction_timezone_fixture');$mid=$r['message']['id'];for($i=0;$i<60;$i++)$m->reactToMessage($a,$mid,$i%2===0?'👍':'❤️');
+    try{$m->reactToMessage($a,$mid,'😂');throw new \RuntimeException('Timezone rate bypass');}catch(MessengerMobileException $e){check($e->apiCode==='rate_limited','reaction limit independent of site timezone');}
+    $db->prepare('UPDATE messenger_reaction_locks SET window_started_at=? WHERE user_id=?')->execute([time()-61,$a->id]);$m->reactToMessage($a,$mid,'😂');check((int)$db->query('SELECT event_count FROM messenger_reaction_locks WHERE user_id=11')->fetchColumn()===1,'new epoch window resets without audit-date ambiguity');
+}finally{date_default_timezone_set($zone);}
 echo 'Reaction checks: '.$GLOBALS['checks'].PHP_EOL;

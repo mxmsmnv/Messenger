@@ -2,6 +2,7 @@
 	'use strict';
 	var root = document.querySelector('[data-messenger-app]');
 	if (!root) return;
+	var historyWindow=false;
 	var threadEpoch=0,inboxEpoch=0,searchEpoch=0,searchActive=false,threadDrafts={},pendingWrites={};
 	var api = root.dataset.api.replace(/\/$/, '') + '/';
 	var ui = {};
@@ -70,14 +71,15 @@
 	function loadInbox(silent) {
 		var epoch=++inboxEpoch,requestedScope=scope;
 		if (!silent) listNode.setAttribute('aria-busy', 'true');
-		return request('inbox', {}, {scope: scope, limit: 50, include_groups:session&&session.groups_supported?'1':'0'}).then(function (result) {
+		return request('inbox', {}, {scope: scope, limit: 50, include_groups:session&&session.groups_supported?'1':'0',include_pins:session&&session.pins_supported?'1':'0'}).then(function (result) {
 			if(epoch!==inboxEpoch||scope!==requestedScope)return;
 			updateRequestBadge(result.pending_request_count);
             if(searchActive){listNode.removeAttribute('aria-busy');return;}
 			empty(listNode);
-			if (!result.items.length) {
+			var combined=(result.pinned_items||[]).concat(result.items).filter(function(c,i,a){return a.findIndex(function(x){return x.id===c.id;})===i;});
+			if (!combined.length) {
 				var state = el('div', 'MessengerEmpty', undefined, 'empty'); state.append(el('h2', '', scope === 'requests' ? 'No message requests' : 'No conversations'), el('p', '', scope === 'requests' ? 'New requests from members will appear here.' : 'Start a private conversation with another member.')); listNode.appendChild(state);
-			} else result.items.forEach(renderConversation);
+			} else combined.forEach(renderConversation);
 			listNode.removeAttribute('aria-busy');
 		}).catch(function (error) { listNode.removeAttribute('aria-busy'); if (!silent) say(error.message, true); });
 	}
@@ -86,12 +88,14 @@
 		var avatar = el('span', 'MessengerAvatar', (item.other_user.title || '?').slice(0,1).toUpperCase(), 'avatar');
 		var body = el('span', 'MessengerConversation-body'); var top = el('span', 'MessengerConversation-top'); top.append(el('strong','',item.other_user.title || item.other_user.name || 'Member'), el('time','',formatDate(item.sort_at,item.sort_at_iso)));
 		var preview = item.last_message ? (item.last_message.deleted_at ? 'Message removed' : item.last_message.body) : (item.request_state === 'pending' ? 'Message request' : 'Conversation started');
+		if(item.pinned_at)top.append(el('small','MessengerPinnedLabel','Pinned'));
 		var bottom = el('span','MessengerConversation-bottom'); bottom.append(el('span','MessengerConversation-preview',preview)); if (item.unread_count) bottom.append(el('span','MessengerUnread',String(item.unread_count), 'badge'));
 		body.append(top,bottom); row.append(avatar,body); listNode.appendChild(row);if(media)media.groupPhoto(avatar,item);
 	}
 
 	function rememberDraft(){var area=threadNode.querySelector('[data-composer] textarea');if(active&&area)threadDrafts[active.id]=area.value;}
 	function openConversation(id) {
+        historyWindow=false;
 		rememberDraft();var epoch=++threadEpoch;
 		return request('conversation', {}, {id:id}).then(function (conversation) {
 			if(epoch!==threadEpoch)return;active = conversation; root.dataset.threadOpen = 'true'; newestId = 0; renderThreadShell(); return loadMessages(false);
@@ -103,7 +107,7 @@
 		empty(threadNode); threadNode.dataset.id = active.id;
 		var header = el('header','MessengerThread-header',undefined,'thread_header'); var identity = el('div','MessengerIdentity'); identity.append(button('Back','back','MessengerBack'), el('span','MessengerAvatar',(active.other_user.title || '?').slice(0,1).toUpperCase(),'avatar'), el('h2','',active.other_user.title || active.other_user.name || 'Member'));
 
-		var actions = el('div','MessengerThread-actions',undefined,'actions'); actions.append(button(active.archived_at ? 'Restore' : 'Archive','archive'), button(active.muted_until ? 'Unmute' : 'Mute','mute')); if(active.type==='group' && groups) {var groupButton=button('Group info','group-settings');groupButton.addEventListener('click',function(){groups.settings(active.id);});actions.append(groupButton);}else if(active.blocked_by_actor) actions.append(button('Unblock','unblock','MessengerDanger','button_danger')); else if(active.type!=='group' && !active.blocked_by_other) actions.append(button('Block','block','MessengerDanger','button_danger')); header.append(identity,actions);
+		var actions = el('div','MessengerThread-actions',undefined,'actions'); actions.append(button(active.archived_at ? 'Restore' : 'Archive','archive'), button(active.muted_until ? 'Unmute' : 'Mute','mute')); if(active.type==='group' && groups) {var groupButton=button('Group info','group-settings');groupButton.addEventListener('click',function(){groups.settings(active.id);});actions.append(groupButton);}else if(active.blocked_by_actor) actions.append(button('Unblock','unblock','MessengerDanger','button_danger')); else if(active.type!=='group' && !active.blocked_by_other) actions.append(button('Block','block','MessengerDanger','button_danger')); if(tools)tools.threadActions(active,actions);header.append(identity,actions);
 		var messages = el('div','MessengerMessages',undefined,'message_list'); messages.dataset.messages = '';
 		threadNode.append(header);if(media)media.groupPhoto(identity.querySelector('.MessengerAvatar'),active);
 		if (active.request_state === 'pending' && active.recipient_id === session.user_id) {
@@ -120,6 +124,8 @@
 			if(active.can_send===false || (active.can_send===undefined && active.request_state === 'pending')) area.disabled=true;
 			var send = el('button','MessengerPrimary','Send','button_primary'); send.type='submit'; if(area.disabled) send.disabled=true; form.append(area,send);if(active.type==='group'&&media)media.attach(form,active); threadNode.append(form);
 		}
+        if(tools)tools.threadPins(active);
+        if(historyWindow)latestWindow(active.id);
 	}
 	function loadMessages(incremental,preserveScroll) {
 		if (!active) return Promise.resolve();
@@ -201,19 +207,35 @@
             items.forEach(function(item){var row=button('', 'open','MessengerSearchResult','conversation');row.dataset.id=item.conversation_id;row.append(el('strong','',item.body),el('time','',formatDate(item.created_at,item.created_at_iso)));listNode.appendChild(row);});
         }).catch(function(error){if(epoch===searchEpoch){listNode.removeAttribute('aria-busy');say(error.message,true);}});
     });
-	function refreshThread(){
-        if(!active)return Promise.resolve();var id=active.id,epoch=threadEpoch;
+	function refreshThread(force){
+        if(!active||(historyWindow&&!force))return Promise.resolve();var id=active.id,epoch=threadEpoch;
         return request('conversation',{}, {id:id}).then(function(chat){
             if(epoch!==threadEpoch||!active||active.id!==id)return;
             var contentChanged=chat.message_revision!==active.message_revision;
             var changed=chat.request_state!==active.request_state||chat.blocked!==active.blocked||chat.can_send!==active.can_send||JSON.stringify(chat.client_policy)!==JSON.stringify(active.client_policy);
             if(changed){rememberDraft();var messages=threadNode.querySelector('[data-messages]');active=chat;renderThreadShell();if(messages)threadNode.querySelector('[data-messages]').replaceWith(messages);scheduleThread();}
             else active=chat;
+            if(tools){tools.threadPinLabel(active);if(contentChanged&&!changed)tools.threadPins(active);}
+            if(historyWindow)return;
             return loadMessages(!changed&&!contentChanged,contentChanged&&!changed);
         });
+    }
+    function jumpPinned(id,messageId){
+        var epoch=threadEpoch;if(!active||active.id!==id)return Promise.resolve(false);
+        var visible=threadNode.querySelector('[data-message-id="'+messageId+'"]');if(visible){visible.scrollIntoView({block:'center'});return Promise.resolve(true);}
+        return request('messages',{}, {id:id,before:messageId+1,limit:50}).then(function(items){
+            if(epoch!==threadEpoch||!active||active.id!==id)return false;
+            if(!items.some(function(m){return m.id===messageId&&!m.deleted_at;}))throw Error('Message unavailable.');
+            var node=threadNode.querySelector('[data-messages]');empty(node);items.forEach(function(item){node.append(renderMessage(item));});newestId=Math.max.apply(null,items.map(function(m){return m.id;}));historyWindow=true;clearInterval(threadTimer);
+            latestWindow(id);
+            node.querySelector('[data-message-id="'+messageId+'"]').scrollIntoView({block:'center'});return true;
+        });
+    }
+    function latestWindow(id){
+        var old=threadNode.querySelector('[data-latest-window]');if(old)old.remove();var latest=button('Back to latest messages','','','button_secondary');latest.dataset.latestWindow='';latest.addEventListener('click',function(){if(active&&active.id===id)openConversation(id);});var node=threadNode.querySelector('[data-messages]');if(node)node.before(latest);
     }
     function scheduleThread(){clearInterval(threadTimer);threadTimer=setInterval(function(){if(!document.hidden&&active)refreshThread().catch(function(){});},Math.max(3,Number(root.dataset.threadPoll)||4)*1000);}
     function scheduleInbox(){clearInterval(inboxTimer);inboxTimer=setInterval(function(){if(!document.hidden)loadInbox(true);},Math.max(10,Number(root.dataset.inboxPoll)||20)*1000);}
     scheduleInbox();
-	request('session').then(function(result){session=result;if(!session.can_use)throw new Error('Messenger is unavailable.');if((session.forwarding_supported||session.reactions_supported)&&window.ProcessWireMessengerTools)tools=window.ProcessWireMessengerTools({root:root,thread:threadNode,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},groups:session.groups_supported,reactions:session.reactions_supported,canReact:function(id){return active&&active.id===id&&active.request_state==='accepted'&&!active.blocked&&active.can_send!==false;},refresh:function(id){if(active&&active.id===id)loadMessages(false,true);loadInbox(true);}});if(window.ProcessWireMessengerMedia)media=window.ProcessWireMessengerMedia.create({root:root,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},refresh:function(id){if(active&&active.id===id)loadMessages(false);loadInbox(true);}});if(session.groups_supported&&window.ProcessWireMessengerGroups)groups=window.ProcessWireMessengerGroups({root:root,request:request,el:el,button:button,say:say,clientId:clientId,loadInbox:loadInbox,openConversation:openConversation,closeConversation:function(){rememberDraft();threadEpoch++;active=null;root.dataset.threadOpen='false';empty(threadNode);loadInbox();}});return loadInbox();}).catch(function(error){say(error.message,true);listNode.innerHTML='<p class="MessengerState">Messenger is unavailable.</p>';});
+	request('session').then(function(result){session=result;if(!session.can_use)throw new Error('Messenger is unavailable.');if((session.forwarding_supported||session.reactions_supported||session.pins_supported)&&window.ProcessWireMessengerTools)tools=window.ProcessWireMessengerTools({root:root,thread:threadNode,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},groups:session.groups_supported,reactions:session.reactions_supported,pins:session.pins_supported,currentChat:function(){return active;},canPin:function(id){return active&&active.id===id&&active.request_state==='accepted';},jumpPinned:jumpPinned,pinRefresh:function(id){if(active&&active.id===id)refreshThread(true).catch(function(e){say(e.message,true);});loadInbox(true);},canReact:function(id){return active&&active.id===id&&active.request_state==='accepted'&&!active.blocked&&active.can_send!==false;},refresh:function(id){if(active&&active.id===id)loadMessages(false,true);loadInbox(true);}});if(window.ProcessWireMessengerMedia)media=window.ProcessWireMessengerMedia.create({root:root,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},refresh:function(id){if(active&&active.id===id)loadMessages(false);loadInbox(true);}});if(session.groups_supported&&window.ProcessWireMessengerGroups)groups=window.ProcessWireMessengerGroups({root:root,request:request,el:el,button:button,say:say,clientId:clientId,loadInbox:loadInbox,openConversation:openConversation,closeConversation:function(){rememberDraft();threadEpoch++;active=null;root.dataset.threadOpen='false';empty(threadNode);loadInbox();}});return loadInbox();}).catch(function(error){say(error.message,true);listNode.innerHTML='<p class="MessengerState">Messenger is unavailable.</p>';});
 }());

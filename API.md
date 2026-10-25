@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.6 (ProcessWire module version `156`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.7 (ProcessWire module version `157`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -415,6 +415,28 @@ A matching retry returns the existing destination copies, even after the origina
 
 The explicit `installMessageTools($operator)` migration now also creates `messenger_reactions` and its per-member serialization table `messenger_reaction_locks`. Upgrade alone does not. Sites with the1.5.5 forwarding tables can continue forwarding without it; repeat the operator migration to add reactions. The existing `message_tools_enabled` setting and the table must both be present. Discovery advertises `reactions`, browser session `reactions_supported`.
 
-`POST /messenger-api/v1/reaction/` accepts `{message_id:integer, emoji:string|null}`. Six supported values: 👍 ❤️ 😂 😮 😢 🙏. Each member has one current reaction per message. Sending the same desired value again is idempotent; null explicitly clears only the actor's state. No actor identity is accepted from the payload. Returns the current decorated `Message`, including `reactions:[{emoji,count,mine,users:[{id,name,title}]}]`. Counts/identities come from eligible actual participants; group join/rejoin history floors and removal apply. Deleted/expired/hidden/unavailable messages cannot be reacted to; unavailable requests and blocked/unsendable conversations are rejected. A per-member lock serializes writes across conversations. Sixty state changes per minute per member; an identical retry adds no audit event and is not charged again.
+`POST /messenger-api/v1/reaction/` accepts `{message_id:integer, emoji:string|null}`. Six supported values: 👍 ❤️ 😂 😮 😢 🙏. Each member has one current reaction per message. Sending the same desired value again is idempotent; null explicitly clears only the actor's state. No actor identity is accepted from the payload. Returns the current decorated `Message`, including `reactions:[{emoji,count,mine,users:[{id,name,title}]}]`. Counts/identities come from eligible actual participants; group join/rejoin history floors and removal apply. Deleted/expired/hidden/unavailable messages cannot be reacted to; unavailable requests and blocked/unsendable conversations are rejected. A per-member lock serializes writes across conversations. Sixty state changes per member in a fixed60-second epoch window; an identical retry adds no audit event and is not charged again.
 
 Emoji values are individually encrypted with message/user-bound authenticated envelopes. No notification or external provider request is generated for a reaction. A message's forwarding `content_revision` deliberately excludes reactions. Conversation/sync revisions change, so other clients refresh the visible reactions. Browser polling preserves the composer, draft, focus and non-bottom scroll when only message content revision changes. Native reaction requests do not hold the navigation mutex; late acknowledgements never reopen an abandoned conversation.
+
+## Personal chat pins and scoped message pins — 1.5.7 candidate
+
+Run the explicit administrator `installMessageTools($operator)` migration to add `messenger_chat_pins`, `messenger_message_pins` and `messenger_pin_locks`, then separately enable message tools. Patch upgrades create no table. Existing forwarding/reactions remain independently available on their previous schemas. Discovery advertises `pins`, browser session `pins_supported`, only when all pin tables are present.
+
+- `POST pin-chat {id:integer,pinned:boolean}` sets the authenticated actor's desired state. Five personal chat pins per member across Inbox/Archive. Unpinning clears only that actor's stored pointer and is idempotent, even after access to the original conversation ended. Pinning requires an accepted active conversation. Blocks do not prevent personal organisation of accessible history.
+- `GET inbox?include_pins=1` includes up to five authorized `pinned_items` on the first page of Inbox/Archive. The ordinary `items` and date/ID cursor remain unchanged, and old callers do not opt in. Clients prepend/deduplicate this separate prefill and retain the original page size for Load more. A pin archived by its actor stays in Archive; personal chat deletion clears its pin. Conversation metadata adds actor-scoped `pinned_at`.
+- `GET pins?id=conversation` returns `{items:[{scope,created_at,message}],can_pin_shared}` with up to five personal and five shared visible original messages. It never returns another member's personal pins. Hidden/deleted/expired/pre-join messages and inaccessible groups are omitted or denied; pinning never duplicates or bypasses original attachment authorization.
+- `POST pin-message {id,message_id,pinned,scope}` accepts `scope:"personal"` or `"everyone"`; no user/scope-owner ID comes from the payload. Personal is the client default. Sharing requires accepted, unblocked send rights; group sharing/removal additionally requires current owner/admin role. Regular group members retain personal pins only. Five personal messages per member/conversation, with a limit error when full. Up to five shared messages: an explicitly chosen new shared pin replaces the oldest shared pointer when full; clients explain this before confirmation. Exact desired-state retry never replaces another pointer. A shared pin may be removed by another eligible direct participant/group administrator. Removing a member does not remove an otherwise valid shared pin, but the former member cannot view or change it.
+
+Pin changes are serialized per actor across conversations and under the owning conversation lock, capped at60actual changes per fixed60-second epoch window. Repeating the existing state is not charged. Tables contain pointers/epochs/creator IDs, never duplicate message bodies/files. They are retained on module uninstall along with existing Messenger data. New personal pins may clean only the actor's own inaccessible stale pointers; globally deleted/expired shared pointers are removed before capacity checks. An administrator can explicitly add a new shared pin even when the oldest pointer is inaccessible to them; only the pointer is replaced, never disclosed.
+
+Personal/shared message revisions are scoped correctly. Native and web clients can load a bounded authorized older-message window and return explicitly to latest; polling does not overwrite that selected window. The web composer/draft survives the jump. A delayed response cannot replace a different conversation. No pin push or production installation is implied.
+
+### 1.5.7 member-window correction
+
+Reaction/pin counters use persisted epoch windows under the existing member locks,
+independent of the site's PHP timezone, DST and audit retention. The explicit
+operator migration adds `window_started_at` / `event_count` to existing1.5.6
+reaction-lock rows without dropping their user IDs. Readiness stays false until
+both columns exist; no member-side DDL is attempted. Exact desired-state repeats
+are still free and a failed transaction does not consume a change.

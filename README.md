@@ -23,6 +23,7 @@ If this module saves you time, you can support it through [GitHub Sponsors](http
 - Private encrypted file and voice attachments in accepted conversations (native API).
 - Optional explicit forwarding with independent private media copies, frozen selection revisions and atomic manual retries (1.5.5 development candidate; requires separate operator setup).
 - Optional encrypted reactions with counts/actual authors and exact desired-state retries (1.5.6 development candidate; requires the message-tools operator migration).
+- Optional personal chat pins and permission-scoped personal/shared message pins, with original-message navigation (1.5.7 development candidate; requires the explicit message-tools migration).
 - Cursor pagination, idempotent message creation, recipient search, and bounded encrypted-message search.
 - Per-member rate limits, temporary restrictions, immutable report evidence, and audited moderation decisions.
 - Separate permissions for moderation, evidence viewing, administration, export, and deletion boundaries.

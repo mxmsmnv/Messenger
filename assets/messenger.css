@@ -79,3 +79,8 @@
 
 .MessengerReactionStrip{display:flex;gap:.3rem;flex-wrap:wrap}
 .MessengerReactionStrip [aria-pressed=true],.MessengerForwardFolders [aria-pressed=true]{font-weight:700;box-shadow:inset 0 -2px currentColor}
+
+.MessengerPinnedLabel{font-size:.7em;opacity:.7;margin-inline-start:.4rem}
+.MessengerPinsBar:empty{display:none}
+.MessengerPinsBar button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:start}
+.MessengerPinRow{padding:.7rem 0;border-bottom:1px solid var(--Messenger-border,#d5d8dc);overflow-wrap:anywhere}

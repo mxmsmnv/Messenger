@@ -56,6 +56,20 @@ final class MessengerRestApi extends Wire {
                 return $this->response(200,$result);
             }
 			if(str_starts_with($resource,'group-'))return $this->response(200,$this->messenger->groupRequest($actor,$resource,$method,$body,['id'=>$this->wire()->input->get('id')]));
+            if($resource==='pin-chat'){
+                $this->allow($method,['POST']);
+                if(!is_int($body['id']??null)||!is_bool($body['pinned']??null))throw new \InvalidArgumentException('Conversation and exact desired pin state required.');
+                return $this->response(200,$this->messenger->pinChat($actor,$body['id'],$body['pinned']));
+            }
+            if($resource==='pin-message'){
+                $this->allow($method,['POST']);
+                if(!is_int($body['id']??null)||!is_int($body['message_id']??null)||!is_bool($body['pinned']??null)||!is_string($body['scope']??null))throw new \InvalidArgumentException('Message, scope and exact desired pin state required.');
+                return $this->response(200,$this->messenger->pinMessage($actor,$body['id'],$body['message_id'],$body['pinned'],$body['scope']));
+            }
+            if($resource==='pins'){
+                $this->allow($method,['GET']);$id=$this->conversationId($actor,$this->identifier());
+                return $this->response(200,$this->messenger->pinnedMessages($actor,$id));
+            }
             if($resource==='reaction'){
                 $this->allow($method,['POST']);
                 if(!is_int($body['message_id']??null)||!array_key_exists('emoji',$body)||($body['emoji']!==null&&!is_string($body['emoji'])))throw new \InvalidArgumentException('Message ID and exact desired reaction required.');
@@ -109,9 +123,10 @@ final class MessengerRestApi extends Wire {
 					break;
 				case 'inbox':
 					$this->allow($method, ['GET']);
-					$scope = (string)$this->wire()->input->get('scope');
+					$scope = (string)$this->wire()->input->get('scope');if(!in_array($scope,['inbox','requests','archived'],true))$scope='inbox';
 					$before = trim((string)$this->wire()->input->get('before')) ?: null;
 					$result = $this->messenger->conversationsForUser($actor, $scope, $before, $this->queryInt('limit', 30, 100), (string)$this->wire()->input->get('include_groups')==='1');
+                    if(!$before&&(string)$this->wire()->input->get('include_pins')==='1'&&$this->messenger->pinsReady())$result['pinned_items']=$this->messenger->pinnedChats($actor,$scope,(string)$this->wire()->input->get('include_groups')==='1');
 					break;
 				case 'conversation':
 					$this->allow($method, ['GET']);
@@ -230,6 +245,7 @@ final class MessengerRestApi extends Wire {
 			$result['groups_supported']=$this->messenger->groupsReady();
             $result['forwarding_supported']=$this->messenger->forwardingReady();
             $result['reactions_supported']=$this->messenger->reactionsReady();
+            $result['pins_supported']=$this->messenger->pinsReady();
 			$result['name'] = (string)$actor->name;
 			$result['title'] = (string)($actor->get('display_name') ?: $actor->get('title') ?: $actor->name);
 		}

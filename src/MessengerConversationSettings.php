@@ -47,6 +47,7 @@ trait MessengerConversationSettings {
 			$through=$this->scalar('SELECT COALESCE(MAX(id),0) FROM messenger_messages WHERE conversation_id=?',[$id]);
 			$this->execute('UPDATE messenger_participants SET hidden_through_message_id=?,hidden_before=?,archived_at=?,last_read_message_id=GREATEST(last_read_message_id,CAST(? AS UNSIGNED)) WHERE conversation_id=? AND user_id=?',[$through,$this->now(),$this->now(),$through,$id,(int)$actor->id]);
 			$this->execute("UPDATE messenger_notification_outbox SET status='cancelled',processed_at=? WHERE conversation_id=? AND recipient_user_id=? AND message_id<=? AND status='pending'",[$this->now(),$id,(int)$actor->id,$through]);
+			if($this->pinsReady())$this->forgetChatPin($actor,$id);
 			$this->audit('conversation_deleted_for_user',$id,0,(int)$actor->id);return ['deleted'=>true];
 		});
 	}

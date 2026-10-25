@@ -4,6 +4,14 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-24
 
+### [1.5.7] — development candidate, not installed
+
+- Make reaction/pin change counters timezone-independent under serialized epoch windows; explicitly upgrade existing1.5.6 lock rows through the operator migration.
+
+- Add personal chat pins and separately scoped personal/shared message pins. Keep other members' personal organisation private; shared group pins require current owner/admin rights. Apply original message, group join-floor, hide/delete/expiry and attachment access rules.
+- Keep legacy inbox cursors unchanged with an explicit first-page pin prefill. Bound pins and serialize actual state changes per member; exact desired retries do not toggle or consume the change rate. Add tables only through the operator migration.
+- Add web pin controls, scoped confirmation, original-message navigation and a protected history window with explicit return to latest and preserved draft. No production migration or store release is included.
+
 ### [1.5.6] — development candidate, not installed
 
 - Add encrypted, participant-authorized reactions shared by native and web clients, with six choices, counts/actual authors, exact desired-state retries and explicit removal of only the actor's reaction. Honor hidden/deleted messages, blocks, group membership/history floors and a bounded state-change rate.
