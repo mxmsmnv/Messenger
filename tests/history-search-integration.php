@@ -1,0 +1,14 @@
+<?php declare(strict_types=1); namespace ProcessWire;
+require __DIR__.'/forwarding-integration.php';$before=$GLOBALS['checks'];$m->set('max_messages_minute',5000);
+$needle='Archive needle '.$suffix;$old=$as($a,fn()=>$m->sendMessage($source,$a,$needle,'mysql_search_old_'.$suffix));
+for($i=0;$i<1100;$i++)$as($a,fn()=>$m->sendMessage($source,$a,'Recent filler '.$i,'mysql_search_fill_'.$suffix.'_'.$i));
+$p=$as($a,fn()=>$m->searchConversationHistory($a,$source,$needle));check($p['scanned']===500&&!$p['complete']&&$p['items']===[],'real empty first bounded scan');
+$q=$as($a,fn()=>$m->searchConversationHistory($a,$source,$needle,$p['next_before']));check($q['scanned']===500&&!$q['complete']&&$q['items']===[],'real empty second scan beyond legacy cutoff');
+$r=$as($a,fn()=>$m->searchConversationHistory($a,$source,$needle,$q['next_before']));check($r['complete']&&array_column($r['items'],'id')===[$old['id']],'real encrypted match past one thousand rows');
+$as($c,fn()=>denied(fn()=>$m->searchConversationHistory($c,$source,$needle)));
+$as($a,fn()=>$m->deleteMessage($old['id'],$a));check($as($a,fn()=>$m->searchConversationHistory($a,$source,$needle,$q['next_before']))['items']===[],'real deleted original excluded');
+$m->installGroups($operator);$m->set('groups_enabled',1);$g=$as($a,fn()=>$m->createGroup($a,'Search integration',[(int)$b->id],'mysql_search_group_'.$suffix));$gid=(int)$g['id'];
+$as($a,fn()=>$m->sendMessage($gid,$a,'Group marker old','mysql_search_pre_'.$suffix));$as($b,fn()=>$m->respondGroupInvitation($gid,$b,true));$fresh=$as($a,fn()=>$m->sendMessage($gid,$a,'Group marker new','mysql_search_post_'.$suffix));
+check(array_column($as($b,fn()=>$m->searchConversationHistory($b,$gid,'Group marker'))['items'],'id')===[$fresh['id']],'real search respects join floor');
+$as($a,fn()=>$m->changeGroup($gid,$a,'remove',['user_id'=>(int)$b->id]));$as($b,fn()=>denied(fn()=>$m->searchConversationHistory($b,$gid,'marker')));
+check(!$db->inTransaction(),'real search leaves no open transaction');echo json_encode(['history_search_checks'=>$GLOBALS['checks']-$before,'database'=>'isolated MySQL clone','processwire'=>wire('config')->version,'live_site_modified'=>false],JSON_PRETTY_PRINT).PHP_EOL;

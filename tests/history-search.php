@@ -1,0 +1,18 @@
+<?php declare(strict_types=1); namespace ProcessWire;
+require __DIR__.'/support/bootstrap.php';
+[$m,$db,$a,$b,$c]=fixture();$m->set('first_contact_mode','open');$m->set('max_messages_minute',5000);
+$r=$m->startConversation($a,$b,'Unique archive needle','history_search_original');$id=(int)$r['conversation']['id'];$original=(int)$r['message']['id'];
+for($i=0;$i<1100;$i++)$m->sendMessage($id,$a,'Recent filler '.$i,'history_search_fill_'.$i);
+$page=$m->searchConversationHistory($a,$id,'needle');check($page['scanned']===500&&!$page['complete']&&$page['items']===[],'empty scan keeps cursor and bounded work');
+$next=$m->searchConversationHistory($a,$id,'needle',$page['next_before']);check($next['scanned']===500&&!$next['complete']&&$next['items']===[],'second empty scan continues beyond legacy cutoff');
+$last=$m->searchConversationHistory($a,$id,'NEEDLE',$next['next_before']);check($last['complete']&&$last['next_before']===null&&count($last['items'])===1&&$last['items'][0]['id']===$original,'case-insensitive match older than one thousand rows');
+denied(fn()=>$m->searchConversationHistory($c,$id,'needle'));denied(fn()=>$m->searchConversationHistory($a,$id,'x'));denied(fn()=>$m->searchConversationHistory($a,$id,str_repeat('x',129)));denied(fn()=>$m->searchConversationHistory($a,$id,'needle',0));
+$sent=[];for($i=0;$i<4;$i++)$sent[]=$m->sendMessage($id,$b,'Café search '.$i,'history_search_matches_'.$i);
+$one=$m->searchConversationHistory($a,$id,'café',null,2);$two=$m->searchConversationHistory($a,$id,'café',$one['next_before'],2);check(count($one['items'])===2&&count($two['items'])===2,'result limit advances within fetched batch');check(array_intersect(array_column($one['items'],'id'),array_column($two['items'],'id'))===[],'exclusive result cursor has no duplicates');check($one['items'][0]['id']>$one['items'][1]['id'],'results newest first');
+$m->deleteMessage($original,$a,false);$p=$m->searchConversationHistory($a,$id,'needle',$next['next_before']);check($p['items']===[],'personal hidden original excluded');
+$db->exec("UPDATE messenger_messages SET expires_at=".(time()-1)." WHERE id=".(int)$sent[3]['id']);$db->exec("UPDATE messenger_messages SET moderation_state='hidden' WHERE id=".(int)$sent[2]['id']);
+$p=$m->searchConversationHistory($a,$id,'café');check(count($p['items'])===2,'expired and moderated results excluded');
+$operator=new class(99)extends User{public function isSuperuser(){return true;}};$m->installGroups($operator);$m->set('groups_enabled',1);
+$g=$m->createGroup($a,'Search group',[$b->id],'history_search_group');$gid=(int)$g['id'];$old=$m->sendMessage($gid,$a,'Prejoin marker','history_search_prejoin');$m->respondGroupInvitation($gid,$b,true);$new=$m->sendMessage($gid,$a,'Postjoin marker','history_search_postjoin');
+$p=$m->searchConversationHistory($b,$gid,'marker');check(array_column($p['items'],'id')===[$new['id']],'group search preserves join floor');$m->changeGroup($gid,$a,'remove',['user_id'=>$b->id]);denied(fn()=>$m->searchConversationHistory($b,$gid,'marker'));
+check(!$db->inTransaction(),'search leaves no open transaction');echo 'History search checks: '.$GLOBALS['checks'].PHP_EOL;

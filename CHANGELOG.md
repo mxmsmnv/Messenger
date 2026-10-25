@@ -2,6 +2,14 @@
 
 All notable changes to Messenger are documented by release date, with versions listed newest first within each day. Git history is preserved.
 
+## 2026-10-25
+
+### [1.5.8] — development candidate, not installed
+
+- Add paginated search of one authorized conversation's encrypted history, without the legacy global search's1,000-message cutoff. Bound each request to500scanned rows and50matches, keep exclusive cursors across empty scans and preserve normal membership/history/visibility checks.
+- Add a cancellable per-conversation web search dialog with bounded result pages, older/previous navigation and an authorized jump to the original that preserves the composer. Reject stale replies after cancellation/closure.
+- Advertise `history_search` without altering legacy global search or adding a plaintext index, schema migration or production rollout.
+
 ## 2026-10-24
 
 ### [1.5.7] — development candidate, not installed

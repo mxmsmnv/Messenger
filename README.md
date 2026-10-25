@@ -14,6 +14,7 @@ If this module saves you time, you can support it through [GitHub Sponsors](http
 
 ## Features
 
+- Development candidate1.5.8 adds [paginated conversation-history search](API.md#paginated-conversation-history-search) in the API and web thread actions. It scans encrypted history in bounded pages without a plaintext index or the legacy global search's1,000-message cutoff; production acceptance remains separate.
 - One unique direct conversation per pair of ProcessWire users.
 - Configurable first contact: open, Message Requests, or a site-owned policy hook.
 - Request counts, accept/decline, pending-send limits, unread watermarks, archive, mute, and notification preferences.

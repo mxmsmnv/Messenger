@@ -147,6 +147,11 @@ final class MessengerRestApi extends Wire {
 					$this->allow($method, ['GET']);
 					$result = $this->messenger->searchMessages($actor, (string)$this->wire()->input->get('q'), $this->queryInt('limit', 30, 50), (string)$this->wire()->input->get('include_groups')==='1');
 					break;
+				case 'search-history':
+					$this->allow($method,['GET']);
+					$query=$this->wire()->input->get('q');if(!is_string($query))throw new \InvalidArgumentException('A search query is required.');
+					$result=$this->messenger->searchConversationHistory($actor,$this->conversationId($actor,$this->identifier()),$query,$this->nullablePositiveQueryInt('before'),$this->queryInt('limit',30,50));
+					break;
 				case 'recipients':
 					$this->allow($method, ['GET']);
 					$result = $this->messenger->searchRecipients($actor, (string)$this->wire()->input->get('q'), $this->queryInt('limit', 10, 20));
@@ -242,6 +247,7 @@ final class MessengerRestApi extends Wire {
 		$result = ['is_login' => (bool)$actor->isLoggedin(), 'user_id' => (int)$actor->id, 'can_use' => $this->messenger->canUse($actor), 'can_moderate' => !$native && $this->messenger->canModerate($actor)];
 		// Only the authenticated member may read their own minimal profile.
 		if($result['is_login'] && $result['can_use']) {
+            $result['history_search_supported']=true;
 			$result['groups_supported']=$this->messenger->groupsReady();
             $result['forwarding_supported']=$this->messenger->forwardingReady();
             $result['reactions_supported']=$this->messenger->reactionsReady();
@@ -259,6 +265,11 @@ final class MessengerRestApi extends Wire {
 	private function bodyText(array $body): string { if(!isset($body['body'])||!is_string($body['body']))throw new \InvalidArgumentException('body must be a string.');return $body['body']; }
 	private function queryInt(string $name,int $default,int $maximum): int { return max(1,min($maximum,(int)$this->wire()->input->get($name)?:$default)); }
 	private function nullableQueryInt(string $name): ?int { $value=(int)$this->wire()->input->get($name);return $value>0?$value:null; }
+	private function nullablePositiveQueryInt(string $name): ?int {
+        $value=$this->wire()->input->get($name);if($value===null||$value==='')return null;
+        if(!is_string($value)||!preg_match('/^[1-9][0-9]*$/D',$value)||filter_var($value,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]])===false)throw new \InvalidArgumentException('Invalid cursor.');
+        return (int)$value;
+    }
 
 	private function jsonBody(string $resource = ''): array {
 		$maximum=$resource==='send-attachment'?12*1024*1024:($resource==='group-avatar'?1024*1024:self::MAX_BODY_BYTES);

@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.7 (ProcessWire module version `157`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.8 (ProcessWire module version `158`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -440,3 +440,21 @@ operator migration adds `window_started_at` / `event_count` to existing1.5.6
 reaction-lock rows without dropping their user IDs. Readiness stays false until
 both columns exist; no member-side DDL is attempted. Exact desired-state repeats
 are still free and a failed transaction does not consume a change.
+
+
+## Paginated conversation history search
+
+`searchConversationHistory(User $actor, int $conversationId, string $query,
+?int $beforeId=null, int $limit=30): array` and authenticated
+`GET /messenger-api/v1/search-history/?id=123&q=words&before=456&limit=30` scan
+up to500authorized historical rows per request. Query length is2–128characters.
+Result: `items` (normal message DTOs, newest first), `next_before` (exclusive
+integer cursor or null), `scanned`, `complete`. Follow the cursor even when no
+match was found in that scan; only `complete=true` establishes exhaustion.
+The scan has no1,000-message history cutoff and creates no plaintext index.
+Conversation/member visibility, group join floors, hides, expiry and moderation
+remain authoritative on every batch and later original-message/file access.
+The discovery feature is `history_search`; authenticated session metadata adds
+`history_search_supported=true`. The bundled web client exposes Search chat history
+in thread actions, with cancellation and bounded result pages. Existing global `search` remains
+unchanged for legacy clients. No schema, worker or production migration is added.

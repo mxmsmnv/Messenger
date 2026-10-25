@@ -8,7 +8,7 @@ node --check assets/messenger-groups.js
 node --check assets/messenger-media.js
 node --check assets/messenger-tools.js
 node tests/web-dates.cjs
-if [[ -d tests/web-dom/node_modules/jsdom ]]; then node tests/web-behavior.cjs; node tests/web-groups.cjs; node tests/web-media.cjs; node tests/web-forwarding.cjs; node tests/web-reactions.cjs; node tests/web-pins.cjs; else echo "Web DOM behavior: skipped (run npm ci --prefix tests/web-dom --ignore-scripts)"; fi
+if [[ -d tests/web-dom/node_modules/jsdom ]]; then node tests/web-behavior.cjs; node tests/web-groups.cjs; node tests/web-media.cjs; node tests/web-forwarding.cjs; node tests/web-reactions.cjs; node tests/web-pins.cjs; node tests/web-history-search.cjs; else echo "Web DOM behavior: skipped (run npm ci --prefix tests/web-dom --ignore-scripts)"; fi
 php tests/contracts.php
 php tests/upgrade-patch.php
 php tests/wirewall-integration.php
@@ -18,6 +18,7 @@ php tests/groups.php
 php tests/forwarding.php
 php tests/reactions.php
 php tests/pins.php
+php tests/history-search.php
 php tests/calls.php
 php tests/call-feedback.php
 php tests/message-push.php

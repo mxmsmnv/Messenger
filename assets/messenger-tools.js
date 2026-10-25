@@ -41,7 +41,40 @@
     if(pin.scope==='personal'||result.can_pin_shared)row.append(button('Unpin',function(){pinWrite('pin-message',{id:id,message_id:pin.message.id,scope:pin.scope,pinned:false},d,function(){d.node.close();pinList(id);});}));d.body.append(row);
    });
   });}
-  function threadActions(chat,actions){if(!host.pins||chat.request_state!=='accepted')return;var b=button(chat.pinned_at?'Unpin chat':'Pin chat',function(){var current=host.currentChat();if(current&&current.id===chat.id)pinWrite('pin-chat',{id:chat.id,pinned:!current.pinned_at});});b.dataset.chatPin='';actions.append(b,button('Pinned messages',function(){pinList(chat.id);}));}
+  function historySearch(id){
+   var d=pinDialog('Search entire chat history'),input=host.el('input'),results=host.el('div','MessengerHistoryResults'),pager=host.el('div','MessengerGroupActions');
+   input.type='search';input.maxLength=256;input.placeholder='Search this chat';input.setAttribute('aria-label','Search this chat');
+   var busy=false,epoch=0,controller=null,timer=null,next=null,current=null,trail=[],sawMatches=false;
+   var search=button('Search',function(){run(null,false,false);});search.disabled=true;
+   function stop(){epoch++;if(controller)controller.abort();controller=null;clearTimeout(timer);busy=false;search.disabled=Array.from(input.value.trim()).length<2||Array.from(input.value.trim()).length>128;}
+   input.addEventListener('input',function(){stop();next=null;current=null;trail=[];sawMatches=false;results.replaceChildren();pager.replaceChildren();d.status.textContent='';});
+   input.addEventListener('keydown',function(event){if(event.key==='Enter'){event.preventDefault();run(null,false,false);}});
+   d.node.addEventListener('close',stop);
+   d.body.append(input,search,results,pager);
+   function run(cursor,older,previous){
+    if(busy)return;var query=input.value.trim();if(Array.from(query).length<2||Array.from(query).length>128)return;
+    busy=true;search.disabled=true;var ticket=++epoch;controller=new AbortController();timer=setTimeout(function(){controller.abort();},30000);d.status.textContent='Searching…';pager.replaceChildren();
+    var args={id:id,q:query,limit:30};if(cursor!==null)args.before=cursor;
+    host.request('search-history',{signal:controller.signal},args).then(function(page){
+     if(ticket!==epoch||!d.node.isConnected)return;
+     if(!page||!Array.isArray(page.items)||page.items.length>30||!Number.isInteger(page.scanned)||page.scanned<page.items.length||page.scanned>500||typeof page.complete!=='boolean'||page.complete!==(page.next_before===null))throw Error('Invalid history page.');
+     var last=cursor===null?Number.MAX_SAFE_INTEGER:cursor,seen=new Set();page.items.forEach(function(item){if(!Number.isSafeInteger(item.id)||item.id<=0||item.id>=last||item.conversation_id!==id||item.deleted_at||seen.has(item.id))throw Error('Invalid history result.');seen.add(item.id);last=item.id;});
+     if(page.next_before!==null&&(!Number.isSafeInteger(page.next_before)||page.next_before<=0||page.scanned===0||(cursor!==null&&page.next_before>=cursor)||page.items.some(function(m){return m.id<page.next_before;})))throw Error('Invalid history cursor.');
+     if(previous)trail.pop();else if(older)trail=trail.concat([current]).slice(-50);else trail=[];
+     current=cursor;next=page.next_before;sawMatches=older||previous?sawMatches||page.items.length>0:page.items.length>0;
+     results.replaceChildren();page.items.forEach(function(item){var row=button(pinPreview(item),function(){var active=host.currentChat();if(busy||!active||active.id!==id)return;busy=true;search.disabled=true;var jumpTicket=++epoch;controller=new AbortController();timer=setTimeout(function(){controller.abort();},30000);d.status.textContent='Loading…';pager.replaceChildren(button('Cancel',cancelSearch));host.jumpPinned(id,item.id,function(){return d.node.isConnected&&jumpTicket===epoch;},controller.signal).then(function(ok){if(ok)d.node.close();}).catch(function(e){if(jumpTicket===epoch&&d.node.isConnected)d.status.textContent=e.name==='AbortError'?'Search cancelled. Try again.':e.message;}).finally(function(){if(jumpTicket===epoch&&d.node.isConnected){clearTimeout(timer);busy=false;search.disabled=false;idlePager();}});});if(host.formatDate)row.append(host.el('small','',host.formatDate(item.created_at,item.created_at_iso)));results.append(row);});
+     d.status.textContent='Messages checked: '+page.scanned+(page.complete?(sawMatches?' · Done':' · No matches'):'');
+    }).catch(function(error){if(ticket===epoch&&d.node.isConnected)d.status.textContent=error.name==='AbortError'?'Search cancelled. Try again.':error.message;}).finally(function(){
+     if(ticket!==epoch||!d.node.isConnected)return;clearTimeout(timer);busy=false;search.disabled=false;pager.replaceChildren();
+     idlePager();
+    });
+    pager.append(button('Cancel',cancelSearch));
+   }
+   function idlePager(){pager.replaceChildren();if(trail.length)pager.append(button('Previous results',function(){run(trail[trail.length-1],false,true);}));if(next!==null)pager.append(button('Search older messages',function(){run(next,true,false);}));}
+   function cancelSearch(){stop();d.status.textContent='Search cancelled.';idlePager();}
+   input.focus();
+  }
+  function threadActions(chat,actions){if(host.historySearch)actions.append(button('Search chat history',function(){historySearch(chat.id);}));if(!host.pins||chat.request_state!=='accepted')return;var b=button(chat.pinned_at?'Unpin chat':'Pin chat',function(){var current=host.currentChat();if(current&&current.id===chat.id)pinWrite('pin-chat',{id:chat.id,pinned:!current.pinned_at});});b.dataset.chatPin='';actions.append(b,button('Pinned messages',function(){pinList(chat.id);}));}
   function threadPinLabel(chat){var toggle=host.thread.querySelector('[data-chat-pin]');if(toggle)toggle.textContent=chat.pinned_at?'Unpin chat':'Pin chat';}
   function threadPins(chat){
    if(!host.pins||chat.request_state!=='accepted')return;
