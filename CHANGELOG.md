@@ -4,6 +4,12 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-24
 
+### [1.5.6] — development candidate, not installed
+
+- Add encrypted, participant-authorized reactions shared by native and web clients, with six choices, counts/actual authors, exact desired-state retries and explicit removal of only the actor's reaction. Honor hidden/deleted messages, blocks, group membership/history floors and a bounded state-change rate.
+- Exclude removed/rejoining group members from old reaction counts and keep forwarding content revisions stable. Add the reaction table only through the separate operator migration; existing1.5.5 forwarding remains compatible without it.
+- Refresh browser message revisions without replacing the composer, losing its focus/draft or forcing a non-bottom reader to the latest message. No reaction push, production migration or website rollout is included.
+
 ### [1.5.5] — development candidate, not installed
 
 - Add explicit forwarding of one to ten visible messages to an accepted direct/group conversation. Create independent encrypted file/voice copies with a fresh album ID, trusted forwarding marker and no disclosure of the original sender or private conversation.

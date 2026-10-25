@@ -11,7 +11,28 @@
    toolbar.append(host.el('span','',selected.size+' selected'),button('Forward selected',function(){choose(source,Array.from(selected.values()));}),button('Clear selection',function(){selected.clear();host.thread.querySelectorAll('[data-forward-select]').forEach(function(n){n.checked=false;});redraw();}));
    var messages=host.thread.querySelector('[data-messages]');if(messages)messages.before(toolbar);
   }
+  var reactionBusy=new Set(),emojiList=['👍','❤️','😂','😮','😢','🙏'];
+  function reactionPicker(item,chatId){
+   var d=host.el('dialog','MessengerDialog MessengerGroupDialog',undefined,'dialog'),head=host.el('header','MessengerGroupHeader'),body=host.el('div','MessengerGroupBody'),status=host.el('p','MessengerState');status.setAttribute('role','status');
+   head.append(host.el('h2','','Reactions'),button('Close',function(){d.close();}));d.append(head,body,status);host.root.append(d);d.addEventListener('close',function(){d.remove();});d.showModal();
+   var reactions=Array.isArray(item.reactions)?item.reactions.slice(0,6):[],choices=host.el('div','MessengerForwardFolders');
+   emojiList.forEach(function(emoji){var own=reactions.some(function(r){return r.emoji===emoji&&r.mine;});var b=button(emoji,function(){
+    if(reactionBusy.has(item.id)||(host.canReact&&!host.canReact(chatId)))return;reactionBusy.add(item.id);d.setAttribute('aria-busy','true');status.textContent='Saving…';var abort=new AbortController(),timer=setTimeout(function(){abort.abort();},30000);
+    host.request('reaction',{method:'POST',body:{message_id:item.id,emoji:own?null:emoji},signal:abort.signal}).then(function(result){
+     if(!result||result.id!==item.id||result.conversation_id!==chatId||!Array.isArray(result.reactions)||result.reactions.length>6)throw Error('The site did not confirm the reaction.');
+     host.refresh(chatId);if(d.isConnected)d.close();
+    }).catch(function(e){if(d.isConnected)status.textContent=e.message;}).finally(function(){clearTimeout(timer);reactionBusy.delete(item.id);d.removeAttribute('aria-busy');});
+   });b.setAttribute('aria-pressed',String(own));b.disabled=!!host.canReact&&!host.canReact(chatId);choices.append(b);});body.append(choices);
+   var authors=host.el('div','MessengerForwardTargets');reactions.forEach(function(r){(r.users||[]).slice(0,100).forEach(function(u){authors.append(host.el('p','',r.emoji+' '+(u.title||u.name)));});});body.append(authors);
+  }
+  function attachReactions(article,item,chatId){
+   if(!host.reactions||item.deleted_at||!Number.isSafeInteger(item.id)||item.id<1)return;
+   var controls=article.querySelector('.MessengerMessage-controls'),bubble=article.querySelector('.MessengerBubble');if(!controls||!bubble)return;
+   if(!host.canReact||host.canReact(chatId))controls.append(button('React',function(){reactionPicker(item,chatId);}));
+   var strip=host.el('div','MessengerReactionStrip');(item.reactions||[]).slice(0,6).forEach(function(r){if(!emojiList.includes(r.emoji))return;var b=button(r.emoji+' '+r.count,function(){reactionPicker(item,chatId);});b.setAttribute('aria-pressed',String(!!r.mine));strip.append(b);});if(strip.childNodes.length)bubble.append(strip);
+  }
   function attach(article,item,chatId){
+   attachReactions(article,item,chatId);
    if(!Number.isSafeInteger(item.id)||item.id<1||item.deleted_at||!/^[a-f0-9]{64}$/.test(item.content_revision||''))return;
    var controls=article.querySelector('.MessengerMessage-controls');if(!controls)return;
    var label=host.el('label','MessengerForwardCheck'),check=host.el('input');check.type='checkbox';check.dataset.forwardSelect='';check.checked=selected.has(item.id);check.setAttribute('aria-label','Select message '+item.id);label.append(check,host.el('span','','Select'));
@@ -50,6 +71,6 @@
    function load(more){var epoch=++generation,before=more?cursor:null;status.textContent='Loading chats…';host.request('inbox',{}, {scope:folder,limit:30,include_groups:host.groups?'1':'0',before:before||''}).then(function(page){if(!d.isConnected||epoch!==generation)return;loaded=(more?loaded:[]).concat(page.items.filter(function(c){return c.state==='active'&&c.request_state==='accepted'&&!c.blocked&&c.can_send===true;}));loaded=loaded.filter(function(c,i,a){return a.findIndex(function(x){return x.id===c.id;})===i;});cursor=page.next_cursor&&page.next_cursor!==before?page.next_cursor:null;status.textContent='';render();}).catch(function(e){error(e);if(d.isConnected)body.append(button('Retry',function(){load(more);}));});}
    render();if(!pending)load(false);
   }
-  return{attach:attach,reset:reset};
+  return{attach:attach,reset:reset,redraw:redraw};
  };
 })();

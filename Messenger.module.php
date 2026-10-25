@@ -3,6 +3,7 @@
 require_once __DIR__ . '/src/MessengerCalls.php';
 require_once __DIR__ . '/src/MessengerGroups.php';
 require_once __DIR__ . '/src/MessengerMessageTools.php';
+require_once __DIR__ . '/src/MessengerReactions.php';
 require_once __DIR__ . '/src/MessengerMessagePush.php';
 require_once __DIR__ . '/src/MessengerBroadcasts.php';
 require_once __DIR__ . '/src/MessengerMobileAuth.php';
@@ -16,6 +17,7 @@ require_once __DIR__ . '/src/MessengerWireWallIntegration.php';
 class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerGroups;
 	use MessengerMessageTools;
+	use MessengerReactions;
 	use MessengerBroadcasts;
 	use MessengerCalls;
 	use MessengerMessagePush;
@@ -23,7 +25,8 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 155;
+	public const VERSION = 156;
+	private const REACTION_EMOJI=['👍','❤️','😂','😮','😢','🙏'];
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -47,7 +50,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 155,
+			'version' => 156,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -152,7 +155,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$customMap->notes = '{"input":{"class":"my-input"},"button_primary":{"class":"my-button","data-variant":"primary"},"badge":{"class":"my-badge"}}';
 		$contactMode = $add($experience, 'InputfieldSelect', 'first_contact_mode', $this->_('First contact policy'), $this->_('Message Requests protects members from unsolicited conversations. A site may override this through Messenger::messagingDecision.'), 50);
 		$add($experience, 'InputfieldCheckbox', 'groups_enabled', $this->_('Enable group conversations'), $this->_('Requires the explicit installGroups migration. Invitations require acceptance; new members cannot read earlier history.'), 100);
-		$add($experience, 'InputfieldCheckbox', 'message_tools_enabled', $this->_('Enable message tools'), $this->_('Requires the explicit installMessageTools migration. Forwarded attachments become independently authorized copies.'), 100);
+		$add($experience, 'InputfieldCheckbox', 'message_tools_enabled', $this->_('Enable message tools'), $this->_('Requires the explicit installMessageTools migration. Forwarded attachments become independently authorized copies; reactions remain participant-scoped.'), 100);
 		$contactMode->addOptions([
 			'requests' => $this->_('Message Requests'),
 			'open' => $this->_('Open messaging'),
@@ -542,7 +545,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		if(!$afterId) $items = array_reverse($items);
 		$groupReaders=($conversation['type']??'direct')==='group'?$this->groupReaders($conversationId):[];
 		foreach($items as &$item) { $item=$this->applyExpiry($item);$item['id'] = (int)$item['id']; $item['conversation_id'] = (int)$item['conversation_id']; $item['sender_user_id'] = (int)$item['sender_user_id']; $item['body'] = $item['deleted_at'] ? '' : $this->decryptMessageRow($item); $item['attachment']=$item['deleted_at']?null:$this->messageAttachment((int)$item['id']); $mediaGroup=$this->messageMediaGroup($item,(string)$item['client_id']);if($mediaGroup!==null)$item['media_group_id']=$mediaGroup; unset($item['client_id']); $item=$this->memberMessagePresentation($item,$actor); if(($conversation['type']??'direct')==='group'){$item+=$this->groupReceipt($item,$groupReaders);$u=$this->wire('users')->get((int)$item['sender_user_id']);$item['sender']=['id'=>(int)$u->id,'name'=>(string)$u->name,'title'=>(string)($u->get('display_name')?:$u->get('title')?:$u->name)];} }
-		return $this->messageToolsPresentation($items,$actor);
+		return $this->reactionsPresentation($this->messageToolsPresentation($items,$actor),$actor);
 	}
 
 	/** Read-only participant metadata; never decrypt content or expire/mutate rows on this path. */
@@ -870,7 +873,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=155) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=156) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 
@@ -899,7 +902,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$otherId=(int)$row['requester_id']===(int)$actor->id?(int)$row['recipient_id']:(int)$row['requester_id']; $other=$this->wire('users')->get($otherId);
 		$row['id']=(int)$row['id']; $row['requester_id']=(int)$row['requester_id']; $row['recipient_id']=(int)$row['recipient_id']; $row['last_message_id']=(int)$row['last_message_id']; $row['last_read_message_id']=(int)($row['last_read_message_id']??0); $row['unread_count']=(int)($row['unread_count']??0);
 		$row['auto_delete_seconds']=(int)($row['auto_delete_seconds']??0);$row['auto_delete_at']=isset($row['auto_delete_at'])?(int)$row['auto_delete_at']:null;$row['muted_until_epoch']=$row['muted_until']?strtotime((string)$row['muted_until']):null;$row['muted']=$row['muted_until_epoch']!==null&&$row['muted_until_epoch']>time();
-		$row['message_revision']=$this->scalar("SELECT COUNT(*) FROM messenger_audit WHERE conversation_id=? AND (action IN ('message_expiry_changed','message_expired','message_edited','message_deleted') OR (action IN ('message_hidden','conversation_deleted_for_user') AND actor_user_id=?))",[(int)$row['id'],(int)$actor->id]);
+		$row['message_revision']=$this->scalar("SELECT COUNT(*) FROM messenger_audit WHERE conversation_id=? AND (action IN ('message_expiry_changed','message_expired','message_edited','message_deleted','message_reacted') OR (action IN ('message_hidden','conversation_deleted_for_user') AND actor_user_id=?))",[(int)$row['id'],(int)$actor->id]);
 		$row['client_policy']=$this->effectiveClientPolicy();
 		$row['sort_at']=(string)($row['last_message_at']?:$row['created_at']);$row['sort_at_iso']=date('c',strtotime($row['sort_at']));
 		$row['blocked_by_actor']=$this->isBlockedBy((int)$actor->id,$otherId);

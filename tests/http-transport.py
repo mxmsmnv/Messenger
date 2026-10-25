@@ -127,6 +127,12 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/forward/',forward_payload,browser=True);check(status==200 and json.loads(text)['result']['messages'][0]['id']!=forwarded['messages'][0]['id'],'valid browser forwarding uses existing session CSRF boundary')
             forward_payload['source_versions']={str(message_id):'0'*64};forward_payload['client_id']='http_forward_changed_03'
             status,text,_=request('/messenger-api/v1/forward/',forward_payload,token=tokens['access_token']);check(status==409 and json.loads(text)['code']=='message_changed','HTTP stale selection is a typed conflict')
+            reaction_payload={'message_id':message_id,'emoji':'👍','user_id':33}
+            status,text,_=request('/messenger-api/v1/reaction/',reaction_payload,token=tokens['access_token']);reaction=json.loads(text)['result']['reactions'][0];check(status==200 and reaction['mine'] and reaction['users'][0]['id']==11,'reaction actor is the Bearer grant owner, never body user_id')
+            status,text,_=request('/messenger-api/v1/reaction/',reaction_payload,token=tokens['access_token']);check(json.loads(text)['result']['reactions'][0]['count']==1,'same desired emoji is idempotent over HTTP')
+            status,text,_=request('/messenger-api/v1/reaction/',{'message_id':message_id,'emoji':None},browser=True);check(status==403,'web reaction still requires CSRF')
+            status,text,_=request('/messenger-api/v1/reaction/',{'message_id':message_id,'emoji':None,'fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and not json.loads(text)['result']['reactions'],'browser can explicitly clear own reaction with CSRF')
+            status,text,_=request('/messenger-api/v1/reaction/',{'message_id':message_id,'emoji':['👍']},token=tokens['access_token']);check(status==400,'reaction payload requires nullable string, not array')
             status,text,_=request('/messenger-api/v1/devices/',token=tokens['access_token'])
             devices=json.loads(text)['result'];check(status==200 and len(devices['items'])==1 and devices['items'][0]['current'],'HTTP own devices and current grant')
             check(tokens['access_token'] not in text and tokens['refresh_token'] not in text,'HTTP device metadata omits credentials')

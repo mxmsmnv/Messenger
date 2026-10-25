@@ -13,6 +13,7 @@ trait MessengerMessageTools {
         $client=$mysql?'VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin':'VARCHAR(64) COLLATE BINARY';
         $db->exec('CREATE TABLE IF NOT EXISTS messenger_forward_ops (user_id BIGINT NOT NULL,client_id '.$client.',request_hash CHAR(64) NOT NULL,conversation_id BIGINT NOT NULL,result_ids TEXT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(user_id,client_id))'.$tail);
         $db->exec('CREATE TABLE IF NOT EXISTS messenger_message_markers (message_id BIGINT PRIMARY KEY,kind VARCHAR(16) NOT NULL)'.$tail);
+        $this->installReactionsSchema();
     }
     private function messageToolsPresentation(array $messages,User $actor): array {
         if(!$messages||!$this->forwardingReady())return $messages;

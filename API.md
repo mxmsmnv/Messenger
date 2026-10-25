@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.5 (ProcessWire module version `155`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.6 (ProcessWire module version `156`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -410,3 +410,11 @@ Returns `{conversation, messages}`. Text, captions and independently encrypted f
 A matching retry returns the existing destination copies, even after the original was deleted or source access ended, but still requires current destination access. It cannot restore a hidden/deleted copy. Store a manual retry ID and its entire immutable payload until acknowledgement; do not automatically retry or replace the payload after a network timeout. Native Bearer requests retain credential separation; browser writes require the existing CSRF token and actor guard.
 
 `messenger_forward_ops` stores the actor, client ID, keyed request fingerprint, destination, encrypted result IDs and creation epoch. `messenger_message_markers` stores only a trusted message-kind marker. As with existing Messenger data, uninstall retains these tables. This is encryption at rest, not end-to-end encryption. The new client/web controls do not activate the feature on an existing site.
+
+## Reactions — 1.5.6 candidate
+
+The explicit `installMessageTools($operator)` migration now also creates `messenger_reactions` and its per-member serialization table `messenger_reaction_locks`. Upgrade alone does not. Sites with the1.5.5 forwarding tables can continue forwarding without it; repeat the operator migration to add reactions. The existing `message_tools_enabled` setting and the table must both be present. Discovery advertises `reactions`, browser session `reactions_supported`.
+
+`POST /messenger-api/v1/reaction/` accepts `{message_id:integer, emoji:string|null}`. Six supported values: 👍 ❤️ 😂 😮 😢 🙏. Each member has one current reaction per message. Sending the same desired value again is idempotent; null explicitly clears only the actor's state. No actor identity is accepted from the payload. Returns the current decorated `Message`, including `reactions:[{emoji,count,mine,users:[{id,name,title}]}]`. Counts/identities come from eligible actual participants; group join/rejoin history floors and removal apply. Deleted/expired/hidden/unavailable messages cannot be reacted to; unavailable requests and blocked/unsendable conversations are rejected. A per-member lock serializes writes across conversations. Sixty state changes per minute per member; an identical retry adds no audit event and is not charged again.
+
+Emoji values are individually encrypted with message/user-bound authenticated envelopes. No notification or external provider request is generated for a reaction. A message's forwarding `content_revision` deliberately excludes reactions. Conversation/sync revisions change, so other clients refresh the visible reactions. Browser polling preserves the composer, draft, focus and non-bottom scroll when only message content revision changes. Native reaction requests do not hold the navigation mutex; late acknowledgements never reopen an abandoned conversation.
