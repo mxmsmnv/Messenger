@@ -40,11 +40,13 @@ trait MessengerMessagePush {
             return ['enabled'=>$body['enabled']];
         });
     }
+    /** Opaque ASCII grants compare exactly across legacy/MySQL8 table collations. */
+    private function messagePushGrantJoin():string {return $this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql'?'g.id=CAST(d.grant_id AS BINARY)':'g.id=d.grant_id';}
     private function queueMessagePush(int $conversationId,int $messageId,int $senderId):void {
         if(!$this->messagePushReady()||$this->messageIsSilent($messageId))return;
-        $q=$this->wire('database')->prepare('SELECT d.grant_id FROM messenger_message_devices d JOIN messenger_mobile_grants g ON g.id=d.grant_id JOIN messenger_participants p ON p.user_id=d.user_id AND p.conversation_id=? WHERE d.user_id<>? AND d.enabled=1 AND d.updated_at>? AND g.revoked_at IS NULL AND (p.muted_until IS NULL OR p.muted_until<=?)');
+        $q=$this->wire('database')->prepare('SELECT d.grant_id,d.user_id FROM messenger_message_devices d JOIN messenger_mobile_grants g ON '.$this->messagePushGrantJoin().' JOIN messenger_participants p ON p.user_id=d.user_id AND p.conversation_id=? WHERE d.user_id<>? AND d.enabled=1 AND d.updated_at>? AND g.revoked_at IS NULL AND (p.muted_until IS NULL OR p.muted_until<=?)');
         $q->execute([$conversationId,$senderId,time()-2592000,$this->now()]);
-        foreach($q->fetchAll(\PDO::FETCH_COLUMN)as$grant)$this->execute("INSERT INTO messenger_message_pushes(message_id,conversation_id,grant_id,status,attempts,available_at,created_at) VALUES(?,?,?,'pending',0,?,?)",[$messageId,$conversationId,$grant,time(),time()]);
+        foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$device){if(!$this->mentionNotificationAllowed($messageId,(int)$device['user_id']))continue;$this->execute("INSERT INTO messenger_message_pushes(message_id,conversation_id,grant_id,status,attempts,available_at,created_at) VALUES(?,?,?,'pending',0,?,?)",[$messageId,$conversationId,$device['grant_id'],time(),time()]);}
     }
     /** Metadata-only alerts: message bodies and sender names never go to APNs/FCM. */
     public function processMessagePushes(User $actor,callable $send,int $limit=20):array {
@@ -59,7 +61,7 @@ trait MessengerMessagePush {
         foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$row){
             $claim=$db->prepare("UPDATE messenger_message_pushes SET status='processing',attempts=attempts+1,available_at=? WHERE message_id=? AND grant_id=? AND status='pending'");$claim->execute([$now,$row['message_id'],$row['grant_id']]);if($claim->rowCount()!==1)continue;
             try {
-                $valid=$db->prepare('SELECT d.enabled,d.sound,d.token,d.updated_at,g.revoked_at,p.last_read_message_id,p.muted_until FROM messenger_message_devices d JOIN messenger_mobile_grants g ON g.id=d.grant_id JOIN messenger_participants p ON p.user_id=d.user_id AND p.conversation_id=? WHERE d.grant_id=? AND g.user_id=d.user_id');$valid->execute([(int)$row['conversation_id'],$row['grant_id']]);$state=$valid->fetch(\PDO::FETCH_ASSOC);
+                $valid=$db->prepare('SELECT d.enabled,d.sound,d.token,d.updated_at,g.revoked_at,p.last_read_message_id,p.muted_until FROM messenger_message_devices d JOIN messenger_mobile_grants g ON '.$this->messagePushGrantJoin().' JOIN messenger_participants p ON p.user_id=d.user_id AND p.conversation_id=? WHERE d.grant_id=? AND g.user_id=d.user_id');$valid->execute([(int)$row['conversation_id'],$row['grant_id']]);$state=$valid->fetch(\PDO::FETCH_ASSOC);
                 if(!$state||!$state['enabled']||$state['updated_at']<$now-2592000||$state['revoked_at']!==null||$state['last_read_message_id']>=$row['message_id']||($state['muted_until']&&strtotime($state['muted_until'])>$now))throw new WirePermissionException('Notification no longer eligible.');
                 $recipient=$this->wire('users')->get((int)$row['user_id']);$previous=$this->wire('user');
                 try {
@@ -68,7 +70,7 @@ trait MessengerMessagePush {
                     if(!$chat||!empty($chat['blocked']))throw new WirePermissionException('Conversation unavailable.');
                     $messages=$this->conversationMessages((int)$row['conversation_id'],$recipient,(int)$row['message_id']+1,(int)$row['message_id']-1,1);
                     $message=$messages[0]??null;
-                    if($this->messageIsSilent((int)$row['message_id'])||!$message||(int)$message['id']!==(int)$row['message_id']||!empty($message['deleted_at'])||(int)$message['sender_user_id']===(int)$recipient->id)throw new WirePermissionException('Message unavailable.');
+                    if($this->messageIsSilent((int)$row['message_id'])||!$this->mentionNotificationAllowed((int)$row['message_id'],(int)$recipient->id)||!$message||(int)$message['id']!==(int)$row['message_id']||!empty($message['deleted_at'])||(int)$message['sender_user_id']===(int)$recipient->id)throw new WirePermissionException('Message unavailable.');
                     if($this->isBlockedEitherWay((int)$message['sender_user_id'],(int)$recipient->id)||!$this->canReceive($this->wire('users')->get((int)$message['sender_user_id'])))throw new WirePermissionException('Message unavailable.');
                     $discovery=(new MessengerMobileAuth($this))->discovery();
                     $account=$discovery['issuer'].'#'.$discovery['site_id'].'#'.(int)$recipient->id;

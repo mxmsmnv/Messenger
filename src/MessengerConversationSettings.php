@@ -77,7 +77,7 @@ trait MessengerConversationSettings {
 			$where='m.expires_at IS NOT NULL AND m.expires_at<=? AND (m.deleted_at IS NULL OR EXISTS (SELECT 1 FROM messenger_attachments a WHERE a.message_id=m.id))';$params=[time()];
 			if($actor!==null){$where.=' AND EXISTS (SELECT 1 FROM messenger_participants p WHERE p.conversation_id=m.conversation_id AND p.user_id=?)';$params[]=(int)$actor->id;}
 			$stmt=$db->prepare('SELECT m.id,m.conversation_id FROM messenger_messages m WHERE '.$where.' ORDER BY m.id LIMIT '.$limit.($execute?$this->forUpdate($db):''));$stmt->execute($params);$rows=$stmt->fetchAll(\PDO::FETCH_ASSOC);
-			if($execute)foreach($rows as $row){$id=(int)$row['id'];$this->execute("UPDATE messenger_messages SET body='',deleted_at=COALESCE(deleted_at,?) WHERE id=?",[$this->now(),$id]);$this->execute('DELETE FROM messenger_attachments WHERE message_id=?',[$id]);$this->erasePollContent($id);$this->execute("UPDATE messenger_notification_outbox SET status='cancelled',processed_at=? WHERE message_id=? AND status='pending'",[$this->now(),$id]);$this->audit('message_expired',(int)$row['conversation_id'],$id,0);}
+			if($execute)foreach($rows as $row){$id=(int)$row['id'];$this->execute("UPDATE messenger_messages SET body='',deleted_at=COALESCE(deleted_at,?) WHERE id=?",[$this->now(),$id]);$this->execute('DELETE FROM messenger_attachments WHERE message_id=?',[$id]);$this->eraseStructuredMessageContent($id);$this->execute("UPDATE messenger_notification_outbox SET status='cancelled',processed_at=? WHERE message_id=? AND status='pending'",[$this->now(),$id]);$this->audit('message_expired',(int)$row['conversation_id'],$id,0);}
 			return ['selected'=>count($rows),'expired'=>$execute?count($rows):0,'execute'=>$execute];
 		});
 	}

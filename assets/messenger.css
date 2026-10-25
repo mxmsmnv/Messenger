@@ -101,3 +101,5 @@
 
 /* Group ballots share the site's existing message/button surface contract. */
 .MessengerPoll{display:grid;gap:.5rem;min-width:min(16rem,100%);max-width:100%;overflow-wrap:anywhere}.MessengerPollOptions,.MessengerPollEditor{display:grid;gap:.5rem}.MessengerPollOption{position:relative;display:block;text-align:start;width:100%;min-height:2.75rem;padding:.6rem .75rem;border-radius:.375rem;overflow:hidden;isolation:isolate}.MessengerPollOption{white-space:normal;overflow-wrap:anywhere;min-width:0}.MessengerPollOption[aria-checked=true]{font-weight:600}.MessengerPollBar{position:absolute;inset-block:0;inset-inline-start:0;background:currentColor;opacity:.12;z-index:-1;pointer-events:none}.MessengerPollEditorRow{display:flex;gap:.5rem;min-width:0}.MessengerPollEditorRow input{min-width:0;flex:1}.MessengerPoll small{display:block}.MessengerPollCreate{align-self:stretch}
+
+.MessengerApp .MessengerMentionMode[aria-pressed="true"] { background:var(--messenger-primary-soft); color:var(--messenger-primary-text); border-color:var(--messenger-primary); font-weight:600; }

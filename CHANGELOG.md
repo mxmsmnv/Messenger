@@ -4,6 +4,18 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.7] — development candidate, not installed
+
+- Capture exact current-member group mentions with encrypted names, browser/native
+  autocomplete, an authorized paginated own-mention feed and a per-member
+  mentions-only notification preference. Explicit operator migration only.
+- Preserve mute/silent choices; recheck queued notifications, edits, forwarding,
+  visibility, expiry and membership. Keep the unread mention preview independent
+  from later ordinary messages; quoting and attachment filenames do not mention.
+- Serialize preference changes and current membership reads; verify MySQL races.
+  Compare opaque mobile grant IDs byte-for-byte across mixed MySQL collations.
+- Production, provider credentials and released clients remain unchanged.
+
 ### [1.6.6] — development candidate, not installed
 
 - Authenticated group invitation links with encrypted random tokens, explicit

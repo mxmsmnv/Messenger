@@ -74,6 +74,7 @@
             function mutate(actionName,body,done){return run(d,function(){return request('group-'+actionName,{method:'POST',body:Object.assign({id:id},body)});},function(g){host.loadInbox(true);if(done)done(g);else{d.node.close();host.openConversation(id);}});}
             run(d,function(){return request('group-details',{}, {id:id});},function(g){
                 d.body.append(el('p','MessengerState',g.member_count+' members · '+g.role));
+                if(host.mentions)host.mentions.controls(d,id,g);
                 var admin=g.role==='owner'||g.role==='admin',owner=g.role==='owner';
                 if(admin&&host.links)d.body.append(action('Invitation link',function(){d.node.close();host.links.settings(id);}));
                 if(admin){var name=el('input','',undefined,'input');name.value=g.other_user.title;name.maxLength=100;name.setAttribute('aria-label','Group name');d.body.append(name,action('Save name',function(){mutate('rename',{title:name.value});}));

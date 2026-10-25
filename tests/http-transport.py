@@ -246,6 +246,17 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/group-link-create/',link_body|{'expires_in':True,'client_id':'http_link_invalid_001'},token=tokens['access_token']);check(status==400,'Boolean is not an invitation lifetime')
             status,text,_=request('/messenger-api/v1/group-link-revoke/',{'id':gid,'link_id':link['id']},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['revoked'],'HTTP exact invitation revocation')
             status,text,_=request('/messenger-api/v1/group-link-status/?id='+str(gid),token=tokens['access_token']);check(status==200 and json.loads(text)['result']['link']['token'] is None,'HTTP revoked invitation does not reveal credential')
+            status,text,_=request('/messenger-api/v1/group-mention-mode/',{'id':gid,'mentions_only':True},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['mentions_only'] is True,'HTTP exact own group mention mode')
+            status,text,_=request('/messenger-api/v1/group-mention-mode/',{'id':gid,'mentions_only':'true'},token=tokens['access_token']);check(status==400,'string is not a Boolean notification preference')
+            status,text,_=request('/messenger-api/v1/group-mention-mode/',{'id':gid,'mentions_only':False},browser=True);check(status==403,'browser mention preference still requires CSRF')
+            status,text,_=request('/messenger-api/v1/group-mention-mode/',{'id':gid,'mentions_only':False,'user_id':22,'fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and json.loads(text)['result']['mentions_only'] is False,'browser preference belongs to current actor despite forged target')
+            script="namespace ProcessWire;require 'tests/support/bootstrap.php';[$m,$db,$a,$b]=fixture();$m->set('groups_enabled',1)->set('first_contact_mode','open');$m->sendMessage("+str(gid)+",$b,'Hello @fixture-11','http_mention_message01');"
+            subprocess.run(['php','-r',script],cwd=ROOT,env=env,check=True,stdout=subprocess.DEVNULL)
+            status,text,_=request('/messenger-api/v1/group-mentions/?id='+str(gid),token=tokens['access_token']);mentions=json.loads(text)['result'];check(status==200 and len(mentions['items'])==1 and mentions['items'][0]['mentioned'] is True,'HTTP authorized own mention navigation')
+            check('request_hash' not in text and 'client_id' not in text and 'menc:v1:' not in text,'mention feed never exposes stored fingerprints or ciphertext')
+            status,text,_=request('/messenger-api/v1/group-mentions/?id='+str(gid)+'&before=0',token=tokens['access_token']);check(status==400,'mention cursor is strictly positive')
+            status,text,_=request('/messenger-api/v1/group-mentions/?id='+str(gid)+'&user_id=22',token=tokens['access_token']);check(status==200 and json.loads(text)['result']['items']==mentions['items'],'a forged target cannot select another members mentions')
+
 
             status,text,_=request('/messenger-api/v1/devices/',browser=True);check(status==403,'native device API never falls back to browser authority')
             def extra_device():

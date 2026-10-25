@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.6 (ProcessWire module version `166`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.7 (ProcessWire module version `167`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -645,3 +645,14 @@ See the [complete group link contract](docs/GROUP_LINKS.md). Explicit administra
 `joinGroupLink(User,string)`. Current actor authorization is mandatory. Share token
 fragments only; use authenticated POST for preview/join. No anonymous membership,
 member-side schema creation or automatic joining is provided.
+
+## Group mentions (1.6.7 development candidate)
+
+See [the operator, privacy and transport contract](docs/MENTIONS.md). Public methods:
+`installGroupMentions(User $administrator)`,
+`setGroupMentionMode(User $actor, int $id, bool $mentionsOnly)` and
+`groupMentions(User $actor, int $id, ?int $before = null)`.
+Discovery `group_mentions` and browser `mentions_supported` require installed schema.
+Messages add actor-specific `mentioned` and encrypted-at-rest captured `mentions`
+entities; group summaries add own `mentions_only` and independent unread
+`last_mention`. No template-side SQL, recipient impersonation or automatic migration.

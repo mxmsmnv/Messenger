@@ -61,7 +61,7 @@ final class MessengerRestApi extends Wire {
                 $result=$this->messenger->experimentalCallRequest($actor,$auth->authenticatedGrant($authorization),$resource,$method,$body,['id'=>$this->wire()->input->get('id'),'after'=>$this->wire()->input->get('after')]);
                 return $this->response(200,$result);
             }
-			if(str_starts_with($resource,'group-'))return $this->response(200,$this->messenger->groupRequest($actor,$resource,$method,$body,['id'=>$this->wire()->input->get('id'),'message_id'=>$this->wire()->input->get('message_id')]));
+			if(str_starts_with($resource,'group-'))return $this->response(200,$this->messenger->groupRequest($actor,$resource,$method,$body,['id'=>$this->wire()->input->get('id'),'message_id'=>$this->wire()->input->get('message_id'),'before'=>$this->wire()->input->get('before')]));
             if($resource==='pin-chat'){
                 $this->allow($method,['POST']);
                 if(!is_int($body['id']??null)||!is_bool($body['pinned']??null))throw new \InvalidArgumentException('Conversation and exact desired pin state required.');
@@ -306,7 +306,7 @@ final class MessengerRestApi extends Wire {
             $result['saved_messages_supported']=$this->messenger->savedMessagesReady();
 			$result['groups_supported']=$this->messenger->groupsReady();
             $result['polls_supported']=$this->messenger->pollsReady();
-            $result['group_links_supported']=$this->messenger->groupLinksReady();$result['messages_path']=$this->messenger->groupMessagesPath();
+            $result['mentions_supported']=$this->messenger->mentionsReady();$result['group_links_supported']=$this->messenger->groupLinksReady();$result['messages_path']=$this->messenger->groupMessagesPath();
             $result['forwarding_supported']=$this->messenger->forwardingReady();
             $result['silent_messages_supported']=$this->messenger->silentMessagesReady();
             $result['reactions_supported']=$this->messenger->reactionsReady();
