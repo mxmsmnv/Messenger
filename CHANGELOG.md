@@ -4,6 +4,13 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.3] — development candidate, not installed
+
+- Correlate native write acknowledgements with validated immutable client IDs.
+- Project current member visibility on retries, redacting hidden, expired,
+  moderated and deleted content without reviving history or attachments.
+- Keep browser and read responses unchanged; no schema changes.
+
 ### [1.6.2] — development candidate, not installed
 
 - Expose bounded native-only recent direct-call events from existing signaling rows, with actor/conversation checks and distinct decline/unanswered/cancelled/accepted-end metadata. Read-only, no schema or provider activation, no audio/duration or unlimited-history claim.

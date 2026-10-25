@@ -190,6 +190,22 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
 
             status,text,_=request('/messenger-api/v1/pin-message/',{'id':cid,'message_id':message_id,'pinned':True,'scope':'someone-else'},token=tokens['access_token']);check(status==400,'scope cannot impersonate another member')
             status,text,_=request('/messenger-api/v1/pin-message/',{'id':cid,'message_id':message_id,'pinned':False,'scope':'personal','fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and not json.loads(text)['result']['pinned'],'valid web CSRF can clear only own personal pin')
+            # Immutable native operation acceptance is distinct from current visibility.
+            ack_payload={'id':sid,'body':'Original acknowledgement text','client_id':'http_write_ack_000001'}
+            status,text,_=request('/messenger-api/v1/send/',ack_payload,token=tokens['access_token']);ack=json.loads(text)['result'];ack_id=ack['id']
+            check(status==200 and ack['accepted_client_id']==ack_payload['client_id'] and ack['ack_visible'] is True,'native write returns authoritative operation correlation')
+            script="namespace ProcessWire;require 'tests/support/bootstrap.php';[$m,$db,$a]=fixture();$m->set('saved_messages_enabled',1)->set('edit_window_minutes',60);$m->editMessage("+str(ack_id)+",$a,'Edited elsewhere');"
+            subprocess.run(['php','-r',script],cwd=ROOT,env=env,check=True,timeout=10)
+            status,text,_=request('/messenger-api/v1/send/',ack_payload,token=tokens['access_token']);edited=json.loads(text)['result']
+            check(status==200 and edited['id']==ack_id and edited['body']=='Edited elsewhere' and edited['ack_visible'] is True,'HTTP edited replay confirms original immutable body without duplicate')
+            status,text,_=request('/messenger-api/v1/send/',ack_payload|{'body':'Changed request'},token=tokens['access_token']);check(status==409,'HTTP correlation cannot acknowledge a changed original request')
+            status,text,_=request('/messenger-api/v1/messages/?id='+str(sid),token=tokens['access_token']);check(status==200 and 'accepted_client_id' not in text and 'ack_visible' not in text,'read history excludes write transport correlation')
+            script="namespace ProcessWire;require 'tests/support/bootstrap.php';[$m,$db,$a]=fixture();$m->set('saved_messages_enabled',1);$m->hideMessage("+str(ack_id)+",$a);"
+            subprocess.run(['php','-r',script],cwd=ROOT,env=env,check=True,timeout=10)
+            status,text,_=request('/messenger-api/v1/send/',ack_payload,token=tokens['access_token']);hidden=json.loads(text)['result']
+            check(status==200 and hidden=={'id':ack_id,'conversation_id':sid,'sender_user_id':11,'body':'','attachment':None,'accepted_client_id':ack_payload['client_id'],'ack_visible':False},'HTTP hidden replay redacts content and confirms only the accepted identity')
+            status,text,_=request('/messenger-api/v1/send/',{'id':sid,'body':'Browser unchanged','client_id':'http_web_ack_000001','fixture_csrf':'fixture_csrf_value'},browser=True)
+            check(status==200 and 'accepted_client_id' not in text and 'ack_visible' not in text,'browser write response remains unchanged')
             status,text,_=request('/messenger-api/v1/devices/',token=tokens['access_token'])
             devices=json.loads(text)['result'];check(status==200 and len(devices['items'])==1 and devices['items'][0]['current'],'HTTP own devices and current grant')
             check(tokens['access_token'] not in text and tokens['refresh_token'] not in text,'HTTP device metadata omits credentials')

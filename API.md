@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.2 (ProcessWire module version `162`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.3 (ProcessWire module version `163`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -547,3 +547,16 @@ Existing signaling cleanup can remove the source rows; this route does not
 extend retention, offer unlimited history/backfill or replace the seven-day
 device-observed journal. Native call-back remains gated by actual opt-in,
 site availability and current chat permissions. No production/store deployment.
+
+## Native write acknowledgements (1.6.3)
+
+Discovery advertises `write_ack`. Successful native `start`, `send` and
+`send-attachment` requests with a supplied valid `client_id` return
+`accepted_client_id` and Boolean `ack_visible` on the resulting message. The
+core validates the original immutable operation before this correlation is
+returned. An edited replay may contain the current edited body. If the message
+is no longer visible to this actor, only id, conversation_id, sender_user_id,
+empty body, null attachment and acknowledgement fields are returned. Clients
+may remove exactly the matching confirmed queued operation, but must never
+insert an invisible acknowledgement into history. GET history and browser
+responses do not contain these transport fields. No schema change is needed.

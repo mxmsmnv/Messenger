@@ -248,6 +248,12 @@ final class MessengerRestApi extends Wire {
 				default:
 					return $this->response(404, null, 'Not found.');
 			}
+            // The core has already validated actor, rights and immutable request hash.
+            // Echo correlation only to the native writer, never browser/history reads.
+            if($native&&$method==='POST'&&in_array($resource,['start','send','send-attachment'],true)&&is_string($body['client_id']??null)&&trim($body['client_id'])!=='') {
+                if($resource==='start')$result['message']=$this->acknowledgeWrite($actor,$result['message'],trim($body['client_id']));
+                else $result=$this->acknowledgeWrite($actor,$result,trim($body['client_id']));
+            }
 			return $this->response(200, $result);
 		} catch(MessengerMobileException $error) {
 			if($error->httpStatus === 429) header('Retry-After: 60');
@@ -266,6 +272,26 @@ final class MessengerRestApi extends Wire {
 		}
 		finally { if($native) $this->wire()->users->setCurrentUser($originalActor); }
 	}
+
+    /** Only after a successful core write/replay. Current visibility is independent
+     * from original request acceptance, including edits and personal hiding. */
+    private function acknowledgeWrite(User $actor,array $message,string $clientId):array {
+        $id=(int)($message['id']??0);$chat=(int)($message['conversation_id']??0);
+        if($id<1||$id>=PHP_INT_MAX||$chat<1||(int)($message['sender_user_id']??0)!==(int)$actor->id||!preg_match('/^[A-Za-z0-9_-]{16,64}$/D',$clientId))throw new WireException('Invalid write acknowledgement.');
+        $visible=false;
+        try {
+            $conversation=$this->messenger->conversation($chat,$actor);
+            if(($conversation['state']??'')==='active') {
+                $rows=$this->messenger->conversationMessages($chat,$actor,$id+1,$id-1,1);
+                if(count($rows)===1&&(int)$rows[0]['id']===$id&&(int)$rows[0]['sender_user_id']===(int)$actor->id&&empty($rows[0]['deleted_at'])&&($rows[0]['moderation_state']??'')==='visible'&&(!isset($rows[0]['expires_at'])||(int)$rows[0]['expires_at']>time())) {
+                    $message=$rows[0];$visible=true;
+                }
+            }
+        }catch(WirePermissionException|Wire404Exception $e) { /* Accepted, now unavailable. */ }
+        if(!$visible)$message=['id'=>$id,'conversation_id'=>$chat,'sender_user_id'=>(int)$actor->id,'body'=>'','attachment'=>null];
+        $message['accepted_client_id']=$clientId;$message['ack_visible']=$visible;
+        return $message;
+    }
 
 	private function sessionResponse(User $actor, bool $native = false): string {
 		$result = ['is_login' => (bool)$actor->isLoggedin(), 'user_id' => (int)$actor->id, 'can_use' => $this->messenger->canUse($actor), 'can_moderate' => !$native && $this->messenger->canModerate($actor)];

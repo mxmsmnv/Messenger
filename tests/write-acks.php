@@ -1,0 +1,27 @@
+<?php declare(strict_types=1);namespace ProcessWire;
+require __DIR__.'/support/bootstrap.php';
+[$m,$db,$a,$b,$other]=fixture();$m->set('edit_window_minutes',60)->set('delete_window_minutes',60);
+$rest=new MessengerRestApi($m);$ack=new \ReflectionMethod($rest,'acknowledgeWrite');
+$client='write_ack_first_000001';$start=$m->startConversation($a,$b,'Original text',$client);$chat=(int)$start['conversation']['id'];$id=(int)$start['message']['id'];$m->acceptRequest($chat,$b);
+$reply=$ack->invoke($rest,$a,$start['message'],$client);check($reply['accepted_client_id']===$client&&$reply['ack_visible']===true&&$reply['body']==='Original text','native correlation follows an accepted visible original write');
+$m->editMessage($id,$a,'Edited elsewhere');$replay=$m->sendMessage($chat,$a,'Original text',$client);$reply=$ack->invoke($rest,$a,$replay,$client);
+check($reply['id']===$id&&$reply['body']==='Edited elsewhere'&&$reply['accepted_client_id']===$client&&$reply['ack_visible']===true,'edited current content still acknowledges the immutable original operation');
+check((int)$db->query('SELECT COUNT(*) FROM messenger_messages')->fetchColumn()===1,'edited retry creates no duplicate');
+denied(fn()=>$m->sendMessage($chat,$a,'Changed request',$client));
+$m->hideMessage($id,$a);$reply=$ack->invoke($rest,$a,$m->sendMessage($chat,$a,'Original text',$client),$client);
+check($reply['ack_visible']===false&&$reply['body']===''&&$reply['attachment']===null,'personal hiding does not leak a replay body or reintroduce it');
+check(array_keys($reply)===['id','conversation_id','sender_user_id','body','attachment','accepted_client_id','ack_visible'],'unavailable acknowledgement exposes no content, timestamp, filename or fingerprint');
+$m->deleteMessage($id,$a);$reply=$ack->invoke($rest,$a,$m->sendMessage($chat,$a,'Original text',$client),$client);check($reply['ack_visible']===false&&$reply['accepted_client_id']===$client,'deletion still confirms acceptance without content');
+$expiryClient='write_ack_expiry_0001';$expiring=$m->sendMessage($chat,$a,'Soon gone',$expiryClient);$db->prepare('UPDATE messenger_messages SET expires_at=? WHERE id=?')->execute([time()-1,(int)$expiring['id']]);
+$reply=$ack->invoke($rest,$a,$m->sendMessage($chat,$a,'Soon gone',$expiryClient),$expiryClient);check($reply['ack_visible']===false&&$reply['body']==='','expiry is not undone by an idempotent retry');
+$moderatedClient='write_ack_moderated_01';$moderated=$m->sendMessage($chat,$a,'Moderated text',$moderatedClient);$db->prepare("UPDATE messenger_messages SET moderation_state='hidden' WHERE id=?")->execute([(int)$moderated['id']]);
+$reply=$ack->invoke($rest,$a,$m->sendMessage($chat,$a,'Moderated text',$moderatedClient),$moderatedClient);check($reply['ack_visible']===false&&$reply['body']==='','moderated current body is not exposed in acknowledgement');
+$mediaClient='write_ack_file_000001';$file=['filename'=>'private-note.txt','mime_type'=>'text/plain','kind'=>'file','data_base64'=>base64_encode('Bounded private file')];$media=$m->sendAttachment($chat,$a,$file,$mediaClient);
+$reply=$ack->invoke($rest,$a,$media,$mediaClient);check($reply['ack_visible']===true&&$reply['attachment']['id']===$media['attachment']['id'],'attachment write gets the same authoritative correlation');
+$m->hideMessage((int)$media['id'],$a);$reply=$ack->invoke($rest,$a,$m->sendAttachment($chat,$a,$file,$mediaClient),$mediaClient);check($reply['ack_visible']===false&&$reply['attachment']===null&&!str_contains(json_encode($reply),'private-note'),'hidden attachment acknowledgement contains no filename or file data');
+$hideClient='write_ack_chat_hide_01';$hidden=$m->sendMessage($chat,$a,'Hide this history',$hideClient);$m->deleteConversationForUser($chat,$a);
+$reply=$ack->invoke($rest,$a,$m->sendMessage($chat,$a,'Hide this history',$hideClient),$hideClient);check($reply['ack_visible']===false,'conversation hiding retains original acceptance without history revival');
+denied(fn()=>$ack->invoke($rest,$b,$hidden,$hideClient));
+try{$ack->invoke($rest,$a,$hidden,'invalid');throw new \RuntimeException('Expected invalid correlation ID');}catch(WireException $e){check(true,'malformed correlation ID rejected');}
+check((int)$db->query('SELECT COUNT(*) FROM messenger_messages WHERE client_id=\''.$client.'\'')->fetchColumn()===1,'original identity remains unique after hide/delete/expiry paths');
+echo 'Write acknowledgement checks: '.$GLOBALS['checks']."\n";

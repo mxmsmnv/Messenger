@@ -12,6 +12,13 @@ Use Messenger when a ProcessWire site needs direct one-to-one conversations with
 
 If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
+## Native write acknowledgement candidate
+
+Messenger 1.6.3 correlates native retries with the original accepted operation,
+including subsequent editing, hiding, deletion and expiry. Unavailable content
+is redacted instead of reappearing in client history. See [API.md](API.md).
+No production deployment or schema change is implied.
+
 ## Transient activity candidate
 
 Messenger 1.6.2 adds a read-only, native-authorized recent direct-call journal from

@@ -1,0 +1,16 @@
+<?php declare(strict_types=1);namespace ProcessWire;
+require __DIR__.'/forwarding-integration.php';require_once $root.'/site/modules/Messenger/MessengerRestApi.php';$before=$GLOBALS['checks'];
+$rest=new MessengerRestApi($m);$ack=new \ReflectionMethod($rest,'acknowledgeWrite');
+$client='mysql_ack_'.$suffix;$original=$as($b,fn()=>$m->sendMessage($source,$b,'Immutable original',$client));$id=(int)$original['id'];
+$visible=$as($b,fn()=>$ack->invoke($rest,$b,$original,$client));check($visible['accepted_client_id']===$client&&$visible['ack_visible']===true,'real visible write acknowledgement');
+$as($b,fn()=>$m->editMessage($id,$b,'Edited remotely'));
+$replay=$as($b,fn()=>$m->sendMessage($source,$b,'Immutable original',$client));$edited=$as($b,fn()=>$ack->invoke($rest,$b,$replay,$client));
+check($edited['id']===$id&&$edited['body']==='Edited remotely'&&$edited['ack_visible']===true,'real edited replay confirms original acceptance');
+$as($b,fn()=>denied(fn()=>$m->sendMessage($source,$b,'Changed request',$client)));
+$as($b,fn()=>$m->hideMessage($id,$b));$replay=$as($b,fn()=>$m->sendMessage($source,$b,'Immutable original',$client));$hidden=$as($b,fn()=>$ack->invoke($rest,$b,$replay,$client));
+check($hidden['ack_visible']===false&&$hidden['body']===''&&$hidden['attachment']===null,'real per-member hiding redacts replay content');
+check(count($hidden)===7,'real hidden acknowledgement has only minimal transport metadata');
+$q=$db->prepare('SELECT COUNT(*) FROM messenger_messages WHERE client_id=? AND sender_user_id=?');$q->execute([$client,(int)$b->id]);check((int)$q->fetchColumn()===1,'real immutable retry remains unique');
+$q=$db->prepare('SELECT body FROM messenger_messages WHERE id=?');$q->execute([$id]);check(str_starts_with((string)$q->fetchColumn(),'menc:v1:'),'real body remains encrypted at rest');
+check(!$db->inTransaction(),'no leaked transaction');
+echo json_encode(['write_ack_checks'=>$GLOBALS['checks']-$before,'database'=>'isolated MySQL clone','processwire'=>wire('config')->version,'live_site_modified'=>false],JSON_PRETTY_PRINT).PHP_EOL;

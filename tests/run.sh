@@ -25,6 +25,7 @@ php tests/activity.php
 php tests/saved-messages.php
 php tests/calls.php
 php tests/call-events.php
+php tests/write-acks.php
 php tests/call-feedback.php
 php tests/message-push.php
 php tests/message-push-provider.php
