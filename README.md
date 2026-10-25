@@ -12,6 +12,14 @@ Use Messenger when a ProcessWire site needs direct one-to-one conversations with
 
 If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
+## Without-notification attachment candidate
+
+Messenger1.6.4 adds explicit per-message suppression of email/message push, with
+an attachment-preview choice in the bundled web UI. Messages remain readable and
+unread counts work normally; recipient mute/preferences are not changed. Requires
+existing installed/enabled message tools; no new schema. Updated native clients
+must also honor the per-message flag. See [API.md](API.md).
+
 ## Native write acknowledgement candidate
 
 Messenger 1.6.3 correlates native retries with the original accepted operation,

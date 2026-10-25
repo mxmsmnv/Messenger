@@ -4,6 +4,14 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.4] — development candidate, not installed
+
+- Add explicit per-message suppression of email and message push, preserving
+  ordinary messages, unread counts, rights and recipient preferences.
+- Bind notification intent to immutable retries; recheck both notification workers.
+- Reuse installed message-tool markers without new schema or member-side DDL.
+- Add a capability-gated web attachment choice and retain transient425 uploads.
+
 ### [1.6.3] — development candidate, not installed
 
 - Correlate native write acknowledgements with validated immutable client IDs.

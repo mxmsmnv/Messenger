@@ -206,6 +206,18 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             check(status==200 and hidden=={'id':ack_id,'conversation_id':sid,'sender_user_id':11,'body':'','attachment':None,'accepted_client_id':ack_payload['client_id'],'ack_visible':False},'HTTP hidden replay redacts content and confirms only the accepted identity')
             status,text,_=request('/messenger-api/v1/send/',{'id':sid,'body':'Browser unchanged','client_id':'http_web_ack_000001','fixture_csrf':'fixture_csrf_value'},browser=True)
             check(status==200 and 'accepted_client_id' not in text and 'ack_visible' not in text,'browser write response remains unchanged')
+            status,text,_=request('/messenger-api/v1/session/',token=tokens['access_token']);check(status==200 and json.loads(text)['result']['silent_messages_supported'] is True,'explicit tools expose a Boolean notification-mode capability')
+            quiet={'id':cid,'filename':'quiet-photo.png','mime_type':'image/png','kind':'file','data_base64':'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1sAAAAASUVORK5CYII=','client_id':'http_quiet_photo_0001','silent':True}
+            status,text,_=request('/messenger-api/v1/send-attachment/',quiet,token=tokens['access_token']);quiet_ack=json.loads(text)['result'];quiet_id=quiet_ack['id']
+            check(status==200 and quiet_ack['silent'] is True and quiet_ack['accepted_silent'] is True and quiet_ack['accepted_client_id']==quiet['client_id'],'native photo receipt confirms exact suppressed notification intent')
+            status,text,_=request('/messenger-api/v1/send-attachment/',quiet,token=tokens['access_token']);check(status==200 and json.loads(text)['result']['id']==quiet_id,'quiet native photo retry is unique')
+            status,text,_=request('/messenger-api/v1/send-attachment/',quiet|{'silent':False},token=tokens['access_token']);check(status==409,'reusing quiet operation ID with another mode conflicts')
+            for invalid in ['true',None,[]]:
+                status,text,_=request('/messenger-api/v1/send-attachment/',quiet|{'silent':invalid},token=tokens['access_token']);check(status==400,'notification mode requires strict JSON Boolean')
+            status,text,_=request('/messenger-api/v1/messages/?id='+str(cid),token=tokens['access_token']);rows=json.loads(text)['result']
+            check(status==200 and next(row for row in rows if row['id']==quiet_id)['silent'] is True and 'accepted_silent' not in text,'authorized history carries mode but no write-only proof')
+            status,text,_=request('/messenger-api/v1/send-attachment/',quiet|{'client_id':'http_quiet_web_photo_01'},browser=True);check(status==403,'quiet browser write still requires CSRF')
+            status,text,_=request('/messenger-api/v1/send-attachment/',quiet|{'client_id':'http_quiet_web_photo_01','fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and json.loads(text)['result']['silent'] is True and 'accepted_silent' not in text,'browser photo honors explicit mode without native-only receipt fields')
             status,text,_=request('/messenger-api/v1/devices/',token=tokens['access_token'])
             devices=json.loads(text)['result'];check(status==200 and len(devices['items'])==1 and devices['items'][0]['current'],'HTTP own devices and current grant')
             check(tokens['access_token'] not in text and tokens['refresh_token'] not in text,'HTTP device metadata omits credentials')

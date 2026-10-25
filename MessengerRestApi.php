@@ -120,7 +120,7 @@ final class MessengerRestApi extends Wire {
 				case 'contacts':
 					$this->allow($method,['GET']);$result=$this->messenger->memberDirectory($actor,(string)$this->wire()->input->get('q'),$this->queryInt('limit',30,30),$resource==='contacts');break;
 				case 'send-attachment':
-					$this->allow($method,['POST']);$result=$this->messenger->sendAttachment($this->bodyConversationId($actor,$body),$actor,$body,(string)($body['client_id']??''));break;
+					$this->allow($method,['POST']);$result=$this->messenger->sendAttachment($this->bodyConversationId($actor,$body),$actor,$body,(string)($body['client_id']??''),$this->bodySilent($body));break;
 				case 'attachment':
 					$this->allow($method,['GET']);$result=$this->messenger->attachment($actor,(int)$this->wire()->input->get('id'));break;
 				case 'sync':
@@ -184,12 +184,12 @@ final class MessengerRestApi extends Wire {
 					$this->allow($method, ['POST']);
 					$recipient = $this->wire()->users->get((int)($body['recipient_id'] ?? 0));
 					if(!$recipient instanceof User || !$recipient->id) throw new WirePermissionException('Messaging is unavailable.');
-					$result = $this->messenger->startConversation($actor, $recipient, $this->bodyText($body), (string)($body['client_id'] ?? ''), (array)($body['context'] ?? []));
+					$result = $this->messenger->startConversation($actor, $recipient, $this->bodyText($body), (string)($body['client_id'] ?? ''), (array)($body['context'] ?? []),$this->bodySilent($body));
 					break;
 				case 'send':
 					$this->allow($method, ['POST']);
 					$id = $this->bodyConversationId($actor, $body);
-					$result = $this->messenger->sendMessage($id, $actor, $this->bodyText($body), (string)($body['client_id'] ?? ''));
+					$result = $this->messenger->sendMessage($id, $actor, $this->bodyText($body), (string)($body['client_id'] ?? ''),$this->bodySilent($body));
 					break;
 				case 'accept':
 					$this->allow($method, ['POST']);
@@ -251,8 +251,8 @@ final class MessengerRestApi extends Wire {
             // The core has already validated actor, rights and immutable request hash.
             // Echo correlation only to the native writer, never browser/history reads.
             if($native&&$method==='POST'&&in_array($resource,['start','send','send-attachment'],true)&&is_string($body['client_id']??null)&&trim($body['client_id'])!=='') {
-                if($resource==='start')$result['message']=$this->acknowledgeWrite($actor,$result['message'],trim($body['client_id']));
-                else $result=$this->acknowledgeWrite($actor,$result,trim($body['client_id']));
+                if($resource==='start')$result['message']=$this->acknowledgeWrite($actor,$result['message'],trim($body['client_id']),$this->bodySilent($body));
+                else $result=$this->acknowledgeWrite($actor,$result,trim($body['client_id']),$this->bodySilent($body));
             }
 			return $this->response(200, $result);
 		} catch(MessengerMobileException $error) {
@@ -275,7 +275,8 @@ final class MessengerRestApi extends Wire {
 
     /** Only after a successful core write/replay. Current visibility is independent
      * from original request acceptance, including edits and personal hiding. */
-    private function acknowledgeWrite(User $actor,array $message,string $clientId):array {
+    private function acknowledgeWrite(User $actor,array $message,string $clientId,bool $silent=false):array {
+        if(($message['silent']??false)!==$silent)throw new WireException('Invalid write notification acknowledgement.');
         $id=(int)($message['id']??0);$chat=(int)($message['conversation_id']??0);
         if($id<1||$id>=PHP_INT_MAX||$chat<1||(int)($message['sender_user_id']??0)!==(int)$actor->id||!preg_match('/^[A-Za-z0-9_-]{16,64}$/D',$clientId))throw new WireException('Invalid write acknowledgement.');
         $visible=false;
@@ -289,9 +290,11 @@ final class MessengerRestApi extends Wire {
             }
         }catch(WirePermissionException|Wire404Exception $e) { /* Accepted, now unavailable. */ }
         if(!$visible)$message=['id'=>$id,'conversation_id'=>$chat,'sender_user_id'=>(int)$actor->id,'body'=>'','attachment'=>null];
-        $message['accepted_client_id']=$clientId;$message['ack_visible']=$visible;
+        $message['accepted_client_id']=$clientId;$message['ack_visible']=$visible;if($silent)$message['accepted_silent']=true;
         return $message;
     }
+
+    private function bodySilent(array $body):bool {if(!array_key_exists('silent',$body))return false;if(!is_bool($body['silent']))throw new \InvalidArgumentException('silent must be a boolean.');return $body['silent'];}
 
 	private function sessionResponse(User $actor, bool $native = false): string {
 		$result = ['is_login' => (bool)$actor->isLoggedin(), 'user_id' => (int)$actor->id, 'can_use' => $this->messenger->canUse($actor), 'can_moderate' => !$native && $this->messenger->canModerate($actor)];
@@ -303,6 +306,7 @@ final class MessengerRestApi extends Wire {
             $result['saved_messages_supported']=$this->messenger->savedMessagesReady();
 			$result['groups_supported']=$this->messenger->groupsReady();
             $result['forwarding_supported']=$this->messenger->forwardingReady();
+            $result['silent_messages_supported']=$this->messenger->silentMessagesReady();
             $result['reactions_supported']=$this->messenger->reactionsReady();
             $result['pins_supported']=$this->messenger->pinsReady();
 			$result['name'] = (string)$actor->name;

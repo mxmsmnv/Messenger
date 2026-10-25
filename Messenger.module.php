@@ -3,6 +3,7 @@
 require_once __DIR__ . '/src/MessengerCalls.php';
 require_once __DIR__ . '/src/MessengerGroups.php';
 require_once __DIR__ . '/src/MessengerMessageTools.php';
+require_once __DIR__ . '/src/MessengerSilent.php';
 require_once __DIR__ . '/src/MessengerReactions.php';
 require_once __DIR__ . '/src/MessengerPins.php';
 require_once __DIR__ . '/src/MessengerHistorySearch.php';
@@ -22,6 +23,7 @@ require_once __DIR__ . '/src/MessengerWireWallIntegration.php';
 class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerGroups;
 	use MessengerMessageTools;
+	use MessengerSilent;
 	use MessengerReactions;
 	use MessengerPins;
 	use MessengerHistorySearch;
@@ -35,7 +37,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 163;
+	public const VERSION = 164;
 	private const REACTION_EMOJI=['👍','❤️','😂','😮','😢','🙏'];
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
@@ -60,7 +62,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 163,
+			'version' => 164,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -407,7 +409,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		return ['conversation'=>null,'decision'=>in_array($decision['decision']??'',['allow','request'],true)?$decision['decision']:'deny'];
 	}
 
-	public function startConversation(User $actor, User $recipient, string $body, string $clientId = '', array $context = []): array {
+	public function startConversation(User $actor, User $recipient, string $body, string $clientId = '', array $context = [],bool $silent=false): array {
 		$this->assertActor($actor);
 		$this->assertRecipient($actor, $recipient);
 		$existing = $this->directConversationId((int)$actor->id, (int)$recipient->id);
@@ -415,8 +417,9 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$conversation = $this->conversation($existing, $actor);
 			if(!$conversation) throw new WirePermissionException('Conversation unavailable.');
 			if((string)$conversation['request_state'] === 'declined') throw new WirePermissionException('This request was declined.');
-			return ['conversation' => $conversation, 'message' => $this->sendMessage((int)$conversation['id'], $actor, $body, $clientId)];
+			return ['conversation' => $conversation, 'message' => $this->sendMessage((int)$conversation['id'], $actor, $body, $clientId,$silent)];
 		}
+		$this->assertSilentMode($silent);
 		$decision = $this->messagingDecision($actor, $recipient, $context);
 		$this->assertRecipient($actor, $recipient);
 		if(!in_array((string)($decision['decision'] ?? ''), ['allow', 'request'], true)) throw new WirePermissionException((string)($decision['reason'] ?? 'Messaging is unavailable.'));
@@ -438,7 +441,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$participant = $db->prepare('INSERT INTO `' . self::TABLE_PARTICIPANTS . '` (conversation_id,user_id,role,last_read_message_id,archived_at,muted_until,hidden_before,email_mode,created_at) VALUES (?,?,?,0,NULL,NULL,NULL,\'instant\',?)');
 			$participant->execute([$conversationId, (int)$actor->id, 'requester', $now]);
 			$participant->execute([$conversationId, (int)$recipient->id, 'recipient', $now]);
-			$message = $this->insertMessage($conversationId, $actor, $body, $clientId, $now);
+			$message = $this->insertMessage($conversationId, $actor, $body, $clientId, $now,$this->notificationRequestBody($body,$silent),$silent);
 			$this->queueEmailNotification($conversationId, (int)$message['id'], (int)$recipient->id, $now);
 			$this->audit('conversation_created', $conversationId, (int)$message['id'], (int)$actor->id, ['request_state' => $requestState]);
 			$db->commit();
@@ -446,18 +449,18 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			if($db->inTransaction()) $db->rollBack();
 			if($error instanceof \PDOException && in_array((string)$error->getCode(), ['23000','23505'], true)) {
 				$id = $this->directConversationId((int)$actor->id, (int)$recipient->id);
-				if($id) return ['conversation' => $this->conversation($id, $actor), 'message' => $this->sendMessage($id, $actor, $body, $clientId)];
+				if($id) return ['conversation' => $this->conversation($id, $actor), 'message' => $this->sendMessage($id, $actor, $body, $clientId,$silent)];
 			}
 			throw $error;
 		}
 		return ['conversation' => $this->conversation($conversationId, $actor), 'message' => $message];
 	}
 
-	public function sendMessage(int $conversationId, User $actor, string $body, string $clientId = ''): array {
-		return $this->sendMessageWithAttachment($conversationId,$actor,$body,$clientId,null);
+	public function sendMessage(int $conversationId, User $actor, string $body, string $clientId = '',bool $silent=false): array {
+		return $this->sendMessageWithAttachment($conversationId,$actor,$body,$clientId,null,$silent);
 	}
 
-	private function sendMessageWithAttachment(int $conversationId, User $actor, string $body, string $clientId, ?array $attachment): array {
+	private function sendMessageWithAttachment(int $conversationId, User $actor, string $body, string $clientId, ?array $attachment,bool $silent=false): array {
 		$this->assertActor($actor);
 		$body = $this->messageBody($body);
 		$clientId = $this->clientId($clientId);
@@ -475,7 +478,8 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			if((string)$conversation['request_state'] === 'declined') throw new WirePermissionException('This request was declined.');
 			if($attachment!==null&&(string)$conversation['request_state']!=='accepted')throw new WirePermissionException('Accept the request before sharing files.');
 			$existing = $this->messageByClientId((int)$actor->id, $clientId);
-			if($existing) { $result = $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment),$clientId); if($owned)$db->commit(); return $result; }
+			if($existing) { $result = $this->replayMessage($existing, $conversationId, $this->notificationRequestBody($this->attachmentRequestBody($body,$attachment),$silent),$clientId,$silent); if($owned)$db->commit(); return $result; }
+			$this->assertSilentMode($silent);
 			if((string)$conversation['request_state'] === 'pending' && (int)$conversation['requester_id'] !== (int)$actor->id) throw new WirePermissionException('Accept the message request before replying.');
 			if((string)$conversation['request_state'] === 'pending') {
 				$count = $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND sender_user_id=? AND deleted_at IS NULL', [$conversationId, (int)$actor->id]);
@@ -483,7 +487,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			}
 			$this->assertMessageRate((int)$actor->id);
 			$now = $this->now();
-			$message = $this->insertMessage($conversationId, $actor, $body, $clientId, $now, $this->attachmentRequestBody($body,$attachment));
+			$message = $this->insertMessage($conversationId, $actor, $body, $clientId, $now, $this->notificationRequestBody($this->attachmentRequestBody($body,$attachment),$silent),$silent);
 			if($attachment!==null)$message['attachment']=$this->storeAttachment((int)$message['id'],$attachment);
 			$mediaGroup=$this->messageMediaGroup($message,$clientId);if($mediaGroup!==null)$message['media_group_id']=$mediaGroup;
 			if(($conversation['type']??'direct')==='direct')$this->queueEmailNotification($conversationId, (int)$message['id'], $otherId, $now);
@@ -495,7 +499,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			// Only uniqueness races may be replayed, never authorization/policy errors.
 			if($owned && $error instanceof \PDOException && in_array((string)$error->getCode(), ['23000','23505'], true)) {
 				$existing = $this->messageByClientId((int)$actor->id, $clientId);
-				if($existing) return $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment),$clientId);
+				if($existing) return $this->replayMessage($existing, $conversationId, $this->notificationRequestBody($this->attachmentRequestBody($body,$attachment),$silent),$clientId,$silent);
 			}
 			throw $error;
 		}
@@ -618,7 +622,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$body=$this->messageBody($body);$now=$this->now();
 			$this->execute('UPDATE `' . self::TABLE_MESSAGES . '` SET body=?,edited_at=? WHERE id=?',[$this->encryptValue($body,$this->messageAad($message)),$now,$messageId]);
 			$this->audit('message_edited',(int)$message['conversation_id'],$messageId,(int)$actor->id);
-			$message['body']=$body;$message['edited_at']=$now;unset($message['client_id'],$message['request_hash']);return $this->memberMessagePresentation($message,$actor);
+			$message['body']=$body;$message['edited_at']=$now;unset($message['client_id'],$message['request_hash']);return $this->silentPresentation([$this->memberMessagePresentation($message,$actor)])[0];
 		});
 	}
 
@@ -753,7 +757,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 
 	public function runNotificationOutbox(int $limit = 50, bool $execute = false): array {
 		$limit=max(1,min(100,$limit));$stmt=$this->wire('database')->prepare('SELECT * FROM `' . self::TABLE_OUTBOX . '` WHERE status=\'pending\' AND available_at<=? ORDER BY id ASC LIMIT ' . $limit);$stmt->execute([$this->now()]);$rows=$stmt->fetchAll(\PDO::FETCH_ASSOC);$result=['selected'=>count($rows),'sent'=>0,'failed'=>0,'execute'=>$execute];if(!$execute)return $result;
-		foreach($rows as $row){try{$pref=$this->wire('database')->prepare('SELECT muted_until,email_mode FROM messenger_participants WHERE conversation_id=? AND user_id=?');$pref->execute([(int)$row['conversation_id'],(int)$row['recipient_user_id']]);$current=$pref->fetch(\PDO::FETCH_ASSOC);if(!$current||$current['email_mode']==='off'||($current['muted_until']&&strtotime((string)$current['muted_until'])>time())){$this->execute("UPDATE messenger_notification_outbox SET status='cancelled',processed_at=? WHERE id=?",[$this->now(),(int)$row['id']]);continue;}if($this->scalar('SELECT COUNT(*) FROM messenger_messages WHERE id=? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at>?)',[(int)$row['message_id'],time()])===0){$this->execute("UPDATE messenger_notification_outbox SET status='cancelled',processed_at=? WHERE id=?",[$this->now(),(int)$row['id']]);continue;}$recipient=$this->wire('users')->get((int)$row['recipient_user_id']);$email=$recipient->id?(string)$recipient->email:'';if(!$this->wire('sanitizer')->email($email))throw new WireException('Recipient email unavailable.');$conversation=$this->conversation((int)$row['conversation_id'],$recipient);if(!$conversation)throw new WireException('Conversation unavailable.');$mail=$this->newNotificationMail();$origin=rtrim((string)$this->notification_origin,'/');if($origin===''||!str_starts_with($origin,'https://'))throw new WireException('Notification origin unavailable.');$url=$origin . '/' . trim((string)$this->public_path,'/') . '/?conversation=' . rawurlencode((string)$conversation['public_key']);$mail->to($email)->from((string)$this->from_email,(string)$this->from_name)->subject($this->_('You have a new message'))->body($this->_('A member sent you a private message. Open your inbox: ') . $url);if(method_exists($mail,'addTag'))$mail->addTag('source','messenger');if((int)$mail->send()<1)throw new WireException('Delivery failed.');$this->execute('UPDATE `' . self::TABLE_OUTBOX . '` SET status=\'sent\',processed_at=?,attempts=attempts+1,last_error=\'\' WHERE id=?',[$this->now(),(int)$row['id']]);$result['sent']++;}catch(\Throwable $error){$this->execute('UPDATE `' . self::TABLE_OUTBOX . '` SET attempts=attempts+1,last_error=?,available_at=DATE_ADD(NOW(),INTERVAL LEAST(60,POW(2,attempts)) MINUTE),status=IF(attempts>=5,\'failed\',\'pending\') WHERE id=?',[mb_substr($error->getMessage(),0,500),(int)$row['id']]);$result['failed']++;}}
+		foreach($rows as $row){try{$pref=$this->wire('database')->prepare('SELECT muted_until,email_mode FROM messenger_participants WHERE conversation_id=? AND user_id=?');$pref->execute([(int)$row['conversation_id'],(int)$row['recipient_user_id']]);$current=$pref->fetch(\PDO::FETCH_ASSOC);if($this->messageIsSilent((int)$row['message_id'])||!$current||$current['email_mode']==='off'||($current['muted_until']&&strtotime((string)$current['muted_until'])>time())){$this->execute("UPDATE messenger_notification_outbox SET status='cancelled',processed_at=? WHERE id=?",[$this->now(),(int)$row['id']]);continue;}if($this->scalar('SELECT COUNT(*) FROM messenger_messages WHERE id=? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at>?)',[(int)$row['message_id'],time()])===0){$this->execute("UPDATE messenger_notification_outbox SET status='cancelled',processed_at=? WHERE id=?",[$this->now(),(int)$row['id']]);continue;}$recipient=$this->wire('users')->get((int)$row['recipient_user_id']);$email=$recipient->id?(string)$recipient->email:'';if(!$this->wire('sanitizer')->email($email))throw new WireException('Recipient email unavailable.');$conversation=$this->conversation((int)$row['conversation_id'],$recipient);if(!$conversation)throw new WireException('Conversation unavailable.');$mail=$this->newNotificationMail();$origin=rtrim((string)$this->notification_origin,'/');if($origin===''||!str_starts_with($origin,'https://'))throw new WireException('Notification origin unavailable.');$url=$origin . '/' . trim((string)$this->public_path,'/') . '/?conversation=' . rawurlencode((string)$conversation['public_key']);$mail->to($email)->from((string)$this->from_email,(string)$this->from_name)->subject($this->_('You have a new message'))->body($this->_('A member sent you a private message. Open your inbox: ') . $url);if(method_exists($mail,'addTag'))$mail->addTag('source','messenger');if((int)$mail->send()<1)throw new WireException('Delivery failed.');$this->execute('UPDATE `' . self::TABLE_OUTBOX . '` SET status=\'sent\',processed_at=?,attempts=attempts+1,last_error=\'\' WHERE id=?',[$this->now(),(int)$row['id']]);$result['sent']++;}catch(\Throwable $error){$this->execute('UPDATE `' . self::TABLE_OUTBOX . '` SET attempts=attempts+1,last_error=?,available_at=DATE_ADD(NOW(),INTERVAL LEAST(60,POW(2,attempts)) MINUTE),status=IF(attempts>=5,\'failed\',\'pending\') WHERE id=?',[mb_substr($error->getMessage(),0,500),(int)$row['id']]);$result['failed']++;}}
 		return $result;
 	}
 
@@ -891,19 +895,20 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=163) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=164) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 
-	private function insertMessage(int $conversationId, User $actor, string $body, string $clientId, string $now, ?string $requestBody = null): array {
+	private function insertMessage(int $conversationId, User $actor, string $body, string $clientId, string $now, ?string $requestBody = null,bool $silent=false): array {
 		$expiresAt=$this->insertExpiry($conversationId);
 		$stmt=$this->wire('database')->prepare('INSERT INTO `' . self::TABLE_MESSAGES . '` (conversation_id,sender_user_id,client_id,body,request_hash,reply_to_id,moderation_state,created_at,edited_at,deleted_at,expires_at) VALUES (?,?,?,?,?,0,\'visible\',?,NULL,NULL,?)');
 		$message=['conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'client_id'=>$clientId,'created_at'=>$now];
 		$stmt->execute([$conversationId,(int)$actor->id,$clientId,$this->encryptValue($body,$this->messageAad($message)),$this->contentFingerprint($requestBody??$body),$now,$expiresAt]); $id=(int)$this->wire('database')->lastInsertId();
 		$this->execute('UPDATE `' . self::TABLE_CONVERSATIONS . '` SET last_message_id=?,last_message_at=?,updated_at=? WHERE id=?',[$id,$now,$now,$conversationId]);
 		$this->execute('UPDATE messenger_participants SET archived_at=NULL,hidden_before=NULL WHERE conversation_id=? AND hidden_before IS NOT NULL AND hidden_through_message_id<?',[$conversationId,$id]);
+		$this->markMessageFlags($id,false,$silent);
 		$this->queueMessagePush($conversationId,$id,(int)$actor->id);
-		return $this->memberMessagePresentation(['id'=>$id,'conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'body'=>$body,'moderation_state'=>'visible','created_at'=>$now,'edited_at'=>null,'deleted_at'=>null,'expires_at'=>$expiresAt],$actor);
+		return $this->memberMessagePresentation(['id'=>$id,'conversation_id'=>$conversationId,'sender_user_id'=>(int)$actor->id,'body'=>$body,'moderation_state'=>'visible','created_at'=>$now,'edited_at'=>null,'deleted_at'=>null,'expires_at'=>$expiresAt,'silent'=>$silent],$actor);
 	}
 
 	private function memberMessagePresentation(array $item,User $actor): array {
@@ -934,7 +939,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$row['can_attach']=$row['can_send'] && (string)$row['request_state']==='accepted';
 		$row['other_last_read_message_id']=$safePeer?$this->scalar('SELECT last_read_message_id FROM `' . self::TABLE_PARTICIPANTS . '` WHERE conversation_id=? AND user_id=?',[(int)$row['id'],$otherId]):0;
 		$row['other_user']=['presence'=>$safePeer?$this->memberPresence($otherId):['status'=>'offline','text'=>'','expires_at'=>0],'id'=>$otherId,'name'=>$other->id?(string)$other->name:'','title'=>$other->id?(string)($other->get('title')?:$other->name):$this->_('Unavailable member')];
-		if($row['last_message_id']) { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,created_at,deleted_at,expires_at FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND id>? AND id NOT IN (SELECT message_id FROM `' . self::TABLE_MESSAGE_HIDES . '` WHERE user_id=?) ORDER BY id DESC LIMIT 1'); $stmt->execute([(int)$row['id'],(int)($row['hidden_through_message_id']??0), (int)$actor->id]); $last=$stmt->fetch(\PDO::FETCH_ASSOC); if($last){$last=$this->applyExpiry($last);$last['body']=$last['deleted_at']?'':mb_substr($this->decryptMessageRow($last),0,160);unset($last['client_id']);$row['last_message']=$last;} }
+		if($row['last_message_id']) { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,created_at,deleted_at,expires_at FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND id>? AND id NOT IN (SELECT message_id FROM `' . self::TABLE_MESSAGE_HIDES . '` WHERE user_id=?) ORDER BY id DESC LIMIT 1'); $stmt->execute([(int)$row['id'],(int)($row['hidden_through_message_id']??0), (int)$actor->id]); $last=$stmt->fetch(\PDO::FETCH_ASSOC); if($last){$last=$this->applyExpiry($last);$last['body']=$last['deleted_at']?'':mb_substr($this->decryptMessageRow($last),0,160);unset($last['client_id']);$row['last_message']=$this->silentPresentation([$last])[0];} }
 		unset($row['direct_key']); return $row;
 	}
 
@@ -957,7 +962,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	}
 
 	private function queueEmailNotification(int $conversationId,int $messageId,int $recipientId,string $now): void {
-		if(!(bool)$this->email_notifications) return;
+		if(!(bool)$this->email_notifications||$this->messageIsSilent($messageId)) return;
 		$stmt=$this->wire('database')->prepare('SELECT email_mode,muted_until FROM `' . self::TABLE_PARTICIPANTS . '` WHERE conversation_id=? AND user_id=?');$stmt->execute([$conversationId,$recipientId]);$pref=$stmt->fetch(\PDO::FETCH_ASSOC);
 		if(!$pref||$pref['email_mode']==='off'||($pref['muted_until']&&strtotime($pref['muted_until'])>time())) return;
 		$this->execute('INSERT INTO `' . self::TABLE_OUTBOX . '` (event_key,conversation_id,message_id,recipient_user_id,channel,status,available_at,attempts,last_error,created_at,processed_at) VALUES (?,?,?,?,\'email\',\'pending\',?,0,\'\',?,NULL)',['message:' . $messageId . ':email:' . $recipientId,$conversationId,$messageId,$recipientId,$pref['email_mode']==='digest'?date('Y-m-d H:00:00',time()+3600):$now,$now]);
@@ -1002,7 +1007,8 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		if(!$this->canReceive($recipient) || (int)$actor->id === (int)$recipient->id || $this->isBlockedEitherWay((int)$actor->id, (int)$recipient->id)) throw new WirePermissionException('Messaging is unavailable.');
 	}
 
-	private function replayMessage(array $message, int $conversationId, string $body,string $clientId): array {
+	private function replayMessage(array $message, int $conversationId, string $body,string $clientId,bool $silent=false): array {
+		if($this->messageIsSilent((int)$message['id'])!==$silent)throw new MessengerMobileException('idempotency_conflict','Client message id conflicts with another operation.',409);
 		$fingerprint = (string)($message['request_hash'] ?? '');
 		// Legacy rows have no immutable fingerprint; never guess after an edit/delete.
 		if($fingerprint === '' && !$message['edited_at'] && !$message['deleted_at']) $fingerprint = $this->contentFingerprint((string)$message['body']);
@@ -1012,6 +1018,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$mediaGroup=$this->messageMediaGroup($message,$clientId);if($mediaGroup!==null)$message['media_group_id']=$mediaGroup;
 		unset($message['request_hash'], $message['client_id']);
 		foreach(['id','conversation_id','sender_user_id'] as $key) $message[$key] = (int)$message[$key];
+		if($this->notificationMarkerTable())$message['silent']=$silent;
 		return $message;
 	}
 

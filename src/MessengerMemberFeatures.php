@@ -52,7 +52,7 @@ trait MessengerMemberFeatures {
         return $this->canReceive($this->wire('users')->get((int)$chat['other_user']['id']));
     }
 
-	public function sendAttachment(int $conversationId,User $actor,array $input,string $clientId): array {
+	public function sendAttachment(int $conversationId,User $actor,array $input,string $clientId,bool $silent=false): array {
 		$this->assertActor($actor);
 		// Reject unavailable conversations before decoding or sniffing a large media payload.
 		// sendMessageWithAttachment repeats these checks under its transaction lock.
@@ -61,7 +61,7 @@ trait MessengerMemberFeatures {
 		$attachment=$this->validateAttachment($input);
 		$body=isset($input['body'])&&is_string($input['body'])?trim($input['body']):'';
 		if($body==='')$body=$attachment['kind']==='voice'?'Voice message':$attachment['filename'];
-		return $this->sendMessageWithAttachment($conversationId,$actor,$body,$clientId,$attachment);
+		return $this->sendMessageWithAttachment($conversationId,$actor,$body,$clientId,$attachment,$silent);
 	}
 	private function validateAttachment(array $input): array {
 		$kind=(string)($input['kind']??'file');$filename=(string)($input['filename']??'');$mime=strtolower((string)($input['mime_type']??''));$encoded=$input['data_base64']??null;

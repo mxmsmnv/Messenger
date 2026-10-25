@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.3 (ProcessWire module version `163`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.4 (ProcessWire module version `164`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -560,3 +560,34 @@ empty body, null attachment and acknowledgement fields are returned. Clients
 may remove exactly the matching confirmed queued operation, but must never
 insert an invisible acknowledgement into history. GET history and browser
 responses do not contain these transport fields. No schema change is needed.
+
+## Per-message notification suppression (1.6.4 candidate)
+
+`silentMessagesReady()` is true only with the existing explicitly installed and
+enabled message tools. Discovery advertises `silent_messages`; browser session
+metadata includes `silent_messages_supported`. No schema is installed by a read.
+Existing marker rows are reused, including after tools are disabled. No new table
+or production migration is required. Include `src/MessengerSilent.php` in any
+future pinned deployment manifest; this source candidate is not installed.
+
+`startConversation(..., array $context = [], bool $silent = false)`,
+`sendMessage(..., bool $silent = false)` and
+`sendAttachment(..., bool $silent = false)` accept an explicit per-message choice.
+REST start/send/send-attachment accept a strict JSON Boolean `silent` (default
+false). Ordinary request hashes remain unchanged. Quiet hashes bind the mode;
+retrying an ID with another notification intent returns409 instead of duplicating
+or changing the original. Existing permissions and current membership still apply.
+
+Quiet messages stay visible and unread under normal authorization; they are not
+avatars, global mutes or hidden messages. They enqueue neither email nor message
+push; both workers recheck suppression before a provider call. Ordinary later
+messages and recipient preferences are unchanged. Authorized message/inbox
+metadata carries `silent`; a quiet native write receipt additionally carries
+`accepted_silent: true`, even when current content has been redacted.
+
+The bundled browser attachment preview offers a per-upload choice, preserving
+that choice with its immutable retry payload. Updated clients must use the flag
+to suppress their own foreground alerts as well. Older clients or third-party
+site code that ignore metadata may generate local alerts; do not promise updated
+client behavior merely from installing the module. No real provider was enabled
+by this development work.

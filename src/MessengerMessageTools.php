@@ -13,6 +13,7 @@ trait MessengerMessageTools {
         $client=$mysql?'VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin':'VARCHAR(64) COLLATE BINARY';
         $db->exec('CREATE TABLE IF NOT EXISTS messenger_forward_ops (user_id BIGINT NOT NULL,client_id '.$client.',request_hash CHAR(64) NOT NULL,conversation_id BIGINT NOT NULL,result_ids TEXT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(user_id,client_id))'.$tail);
         $db->exec('CREATE TABLE IF NOT EXISTS messenger_message_markers (message_id BIGINT PRIMARY KEY,kind VARCHAR(16) NOT NULL)'.$tail);
+        $this->notificationMarkersPresent=null;
         $this->installReactionsSchema();
         $this->installPinsSchema();
     }
@@ -31,8 +32,9 @@ trait MessengerMessageTools {
         $db->prepare('UPDATE '.$table.' SET window_started_at=?,event_count=? WHERE user_id=?')->execute([$start,$count+1,(int)$actor->id]);
     }
     private function messageToolsPresentation(array $messages,User $actor): array {
+        $messages=$this->silentPresentation($messages);
         if(!$messages||!$this->forwardingReady())return $messages;
-        $ids=array_map(static fn(array $m):int=>(int)$m['id'],$messages);$q=$this->wire('database')->prepare('SELECT message_id FROM messenger_message_markers WHERE kind=? AND message_id IN ('.implode(',',array_fill(0,count($ids),'?')).')');$q->execute(['forwarded',...$ids]);$marked=array_fill_keys(array_map('intval',$q->fetchAll(\PDO::FETCH_COLUMN)),true);
+        $ids=array_map(static fn(array $m):int=>(int)$m['id'],$messages);$q=$this->wire('database')->prepare('SELECT message_id FROM messenger_message_markers WHERE kind IN (?,?) AND message_id IN ('.implode(',',array_fill(0,count($ids),'?')).')');$q->execute(['forwarded','forwarded_silent',...$ids]);$marked=array_fill_keys(array_map('intval',$q->fetchAll(\PDO::FETCH_COLUMN)),true);
         foreach($messages as&$message){
             $message['forwarded']=empty($message['deleted_at'])&&isset($marked[(int)$message['id']]);
             $a=$message['attachment']??null;

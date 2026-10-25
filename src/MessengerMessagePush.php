@@ -41,7 +41,7 @@ trait MessengerMessagePush {
         });
     }
     private function queueMessagePush(int $conversationId,int $messageId,int $senderId):void {
-        if(!$this->messagePushReady())return;
+        if(!$this->messagePushReady()||$this->messageIsSilent($messageId))return;
         $q=$this->wire('database')->prepare('SELECT d.grant_id FROM messenger_message_devices d JOIN messenger_mobile_grants g ON g.id=d.grant_id JOIN messenger_participants p ON p.user_id=d.user_id AND p.conversation_id=? WHERE d.user_id<>? AND d.enabled=1 AND d.updated_at>? AND g.revoked_at IS NULL AND (p.muted_until IS NULL OR p.muted_until<=?)');
         $q->execute([$conversationId,$senderId,time()-2592000,$this->now()]);
         foreach($q->fetchAll(\PDO::FETCH_COLUMN)as$grant)$this->execute("INSERT INTO messenger_message_pushes(message_id,conversation_id,grant_id,status,attempts,available_at,created_at) VALUES(?,?,?,'pending',0,?,?)",[$messageId,$conversationId,$grant,time(),time()]);
@@ -68,7 +68,7 @@ trait MessengerMessagePush {
                     if(!$chat||!empty($chat['blocked']))throw new WirePermissionException('Conversation unavailable.');
                     $messages=$this->conversationMessages((int)$row['conversation_id'],$recipient,(int)$row['message_id']+1,(int)$row['message_id']-1,1);
                     $message=$messages[0]??null;
-                    if(!$message||(int)$message['id']!==(int)$row['message_id']||!empty($message['deleted_at'])||(int)$message['sender_user_id']===(int)$recipient->id)throw new WirePermissionException('Message unavailable.');
+                    if($this->messageIsSilent((int)$row['message_id'])||!$message||(int)$message['id']!==(int)$row['message_id']||!empty($message['deleted_at'])||(int)$message['sender_user_id']===(int)$recipient->id)throw new WirePermissionException('Message unavailable.');
                     if($this->isBlockedEitherWay((int)$message['sender_user_id'],(int)$recipient->id)||!$this->canReceive($this->wire('users')->get((int)$message['sender_user_id'])))throw new WirePermissionException('Message unavailable.');
                     $discovery=(new MessengerMobileAuth($this))->discovery();
                     $account=$discovery['issuer'].'#'.$discovery['site_id'].'#'.(int)$recipient->id;

@@ -39,22 +39,25 @@
         }
         async function sendPreview(chat,files,kind,duration){
             if(!files.length||files.length>10||files.some(function(f){return !f.name||f.name.length>180||/[\x00-\x1f\x7f\\/]/.test(f.name)||f.size<1||f.size>(kind==='voice'?4*1024*1024:MAX_FILE);})||files.reduce(function(n,f){return n+f.size;},0)>MAX_BATCH){host.say('Choose up to 10 files, 8 MB each and 32 MB total. Voice: up to 4 MB.',true);return;}
+            var quiet=el('input');quiet.type='checkbox';quiet.checked=!!(pending&&pending.items[0].silent);quiet.disabled=!!pending;
             var d=sheet('Send attachments'),caption=el('textarea','',undefined,'textarea');caption.placeholder='Optional caption';caption.rows=2;caption.maxLength=Number(host.root.dataset.maxLength)||5000;caption.setAttribute('aria-label','Attachment caption');
             if(pending&&pending.id===chat.id){caption.value=pending.items[0].body;caption.disabled=true;d.status.textContent='Unconfirmed upload. Retry keeps its original files and caption.';}
             d.body.append(caption);for(var i=0;i<files.length&&d.node.isConnected;i++)try{await preview(d,files[i]);}catch(e){d.status.textContent='Photo preview unavailable; the original file can still be sent.';}if(!d.node.isConnected)return;
+            if((host.supportsSilent&&host.supportsSilent())||quiet.checked){var choice=el('label','MessengerMediaSilent');choice.append(quiet,el('span','','Send without notification'));d.body.append(choice);}
             var send=action('Send',async function(){
                 if(d.node.dataset.busy==='true')return;d.node.dataset.busy='true';send.disabled=true;d.status.textContent='Sending…';
+                var selectedSilent=pending?pending.items[0].silent===true:quiet.checked;quiet.disabled=true;
                 try{
-                    var account=await request('session');if(account.user_id!==host.memberId())throw new Error('Your account changed. Reload Messenger before sending.');
+                    var account=await request('session');if(selectedSilent&&account.silent_messages_supported!==true)throw new Error('Sending without notification is unavailable on this website.');if(account.user_id!==host.memberId())throw new Error('Your account changed. Reload Messenger before sending.');
                     if(!pending){var album=files.length>1&&files.every(function(f){return /^image\/(jpeg|png|gif|webp)$/.test(f.type);})?randomId():null;
-                        var immutable=[];for(var index=0;index<files.length;index++){var file=files[index];immutable.push({client_id:album?'album_'+album+'_'+index:host.clientId(),kind:kind||'file',filename:file.name,mime_type:file.type||'application/octet-stream',data_base64:await encodedFile(file),body:index===0?caption.value.trim():'',duration_ms:kind==='voice'?duration:null,done:false});}
+                        var immutable=[];for(var index=0;index<files.length;index++){var file=files[index];immutable.push({client_id:album?'album_'+album+'_'+index:host.clientId(),kind:kind||'file',filename:file.name,mime_type:file.type||'application/octet-stream',data_base64:await encodedFile(file),body:index===0?caption.value.trim():'',duration_ms:kind==='voice'?duration:null,silent:selectedSilent,done:false});}
                         pending={id:chat.id,files:files,kind:kind,duration:duration,items:immutable};
                     }
                     if(pending.id!==chat.id)throw new Error('Retry the unconfirmed attachments in their original conversation first.');caption.disabled=true;
-                    for(var item of pending.items){if(item.done)continue;var payload=Object.assign({id:chat.id},item);delete payload.done;if(payload.duration_ms===null)delete payload.duration_ms;var ack=await request('send-attachment',{method:'POST',body:payload});if(!ack||!Number.isSafeInteger(ack.id)||ack.id<1||ack.conversation_id!==chat.id||ack.sender_user_id!==host.memberId()||!ack.attachment||ack.attachment.filename!==item.filename)throw new Error('Attachment acknowledgement unavailable. Retry the original upload.');item.done=true;item.data_base64=null;}
+                    for(var item of pending.items){if(item.done)continue;var payload=Object.assign({id:chat.id},item);delete payload.done;if(payload.duration_ms===null)delete payload.duration_ms;var ack=await request('send-attachment',{method:'POST',body:payload});if(!ack||!Number.isSafeInteger(ack.id)||ack.id<1||ack.conversation_id!==chat.id||ack.sender_user_id!==host.memberId()||!ack.attachment||ack.attachment.filename!==item.filename||(ack.silent===true)!==(item.silent===true))throw new Error('Attachment acknowledgement unavailable. Retry the original upload.');item.done=true;item.data_base64=null;}
                     pending=null;d.node.dataset.busy='false';d.node.close();host.refresh(chat.id);host.say('Attachments sent.');
-                }catch(e){d.status.textContent=e.message;if(e.status>=400&&e.status<500&&e.status!==408&&e.status!==429)pending=null;}
-                finally{d.node.dataset.busy='false';send.disabled=false;}
+                }catch(e){d.status.textContent=e.message;if(e.status>=400&&e.status<500&&e.status!==408&&e.status!==425&&e.status!==429)pending=null;}
+                finally{d.node.dataset.busy='false';send.disabled=false;quiet.disabled=!!pending;caption.disabled=!!pending;}
             });d.body.append(send);if(pending)d.body.append(action('Cancel remaining',function(){if(d.node.dataset.busy!=='true'&&window.confirm('Cancel remaining uploads? Accepted files stay in the conversation; an unconfirmed file may already have been sent.')){pending=null;d.node.close();}}));
         }
         function choose(chat){
