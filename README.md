@@ -186,3 +186,10 @@ Retention settings describe policy only. Permanent purge, anonymization, export,
 ## Opt-in group development candidate
 
 The1.5.3 source candidate adds group invitations, membership/roles, names/photos and compatible mobile/web management. It requires an explicit operator migration and activation; no live installation is implied. See [group contract and remaining acceptance](docs/GROUPS.md). Group links, polls, events, AI and group calls remain separate backlog stages.
+
+
+Messenger1.6.5 adds an opt-in group-poll backend/API candidate: single-choice
+ballots, encrypted choices, aggregate results, exact-state vote retry and author/
+administrator close. Explicit operator migration and enabled groups are required.
+Capability-gated web controls and Narzan integration use this contract; see [API contract](API.md#group-polls-165-development-candidate).
+No production install or completed store release is implied.

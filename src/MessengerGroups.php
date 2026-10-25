@@ -20,6 +20,15 @@ trait MessengerGroups {
     }
     public function groupRequest(User $actor,string $resource,string $method,array $body,array $query): array {
         $this->requireGroups($actor);
+        if(str_starts_with($resource,'group-poll')) {
+            if($resource==='group-poll'&&$method==='GET'){$id=$query['message_id']??null;if(!is_string($id)||!preg_match('/^[1-9][0-9]{0,17}$/D',$id))throw new \InvalidArgumentException('Poll ID required.');return $this->groupPoll($actor,(int)$id);}
+            if($method!=='POST')throw new \InvalidArgumentException('Poll action unavailable.');
+            if($resource==='group-poll-create'){if(!is_int($body['id']??null)||!is_string($body['question']??null)||!is_array($body['options']??null)||!is_string($body['client_id']??null))throw new \InvalidArgumentException('Poll details required.');return $this->createGroupPoll($actor,$body['id'],$body['question'],$body['options'],$body['client_id']);}
+            if(!is_int($body['message_id']??null))throw new \InvalidArgumentException('Poll ID required.');
+            if($resource==='group-poll-close')return $this->closeGroupPoll($actor,$body['message_id']);
+            if($resource==='group-poll-vote'){if(!array_key_exists('choice',$body)||($body['choice']!==null&&!is_int($body['choice'])))throw new \InvalidArgumentException('Exact poll choice required.');return $this->voteGroupPoll($actor,$body['message_id'],$body['choice']);}
+            throw new \InvalidArgumentException('Poll action unavailable.');
+        }
         if($resource==='group-invitations' && $method==='GET')return $this->groupInvitations($actor);
         if($resource==='group-create' && $method==='POST'){
             if(!is_string($body['title']??null)||!is_array($body['user_ids']??null)||!is_string($body['client_id']??null))throw new \InvalidArgumentException('Invalid group creation.');
@@ -68,6 +77,9 @@ trait MessengerGroups {
     }
     private function groupLock(int $id,User $actor,bool $admin=false): array {
         $this->requireGroups($actor);$db=$this->wire('database');
+        // Canonical order shared with send/edit: conversation before membership/group rows.
+        // A join's optimizer-selected row order is not a stable locking protocol.
+        if($db->inTransaction()){$lock=$db->prepare('SELECT id FROM messenger_conversations WHERE id=?'.$this->forUpdate($db));$lock->execute([$id]);$lock->fetchColumn();}
         $q=$db->prepare("SELECT g.*,p.role FROM messenger_groups g JOIN messenger_conversations c ON c.id=g.conversation_id JOIN messenger_participants p ON p.conversation_id=g.conversation_id AND p.user_id=? JOIN messenger_group_members gm ON gm.conversation_id=g.conversation_id AND gm.user_id=p.user_id AND gm.active=1 WHERE g.conversation_id=? AND c.type='group' AND c.state='active'".($db->inTransaction()?$this->forUpdate($db):''));
         $q->execute([(int)$actor->id,$id]);$row=$q->fetch(\PDO::FETCH_ASSOC);
         if(!$row || ($admin&&!in_array($row['role'],['owner','admin'],true)))throw new WirePermissionException('Group unavailable.');
@@ -201,7 +213,7 @@ trait MessengerGroups {
         $row['other_user']=['id'=>0,'name'=>'','title'=>$this->decryptValue($g['title'],'Messenger|group-title|'.$row['id'])];$row['has_avatar']=(bool)$g['has_avatar'];$row['avatar_version']=(int)$g['avatar_version'];$row['requester_id']=(int)$g['owner_id'];$row['group_version']=(int)$g['version'];
         $row['blocked']=false;$row['blocked_by_actor']=false;$row['blocked_by_other']=false;$row['can_send']=$this->groupCanSend($row['id'],$actor);$row['can_attach']=$row['can_send'];$row['other_last_read_message_id']=0;$row['client_policy']=$this->effectiveClientPolicy();
         $row['auto_delete_seconds']=(int)($row['auto_delete_seconds']??0);$row['auto_delete_at']=isset($row['auto_delete_at'])?(int)$row['auto_delete_at']:null;$row['muted_until_epoch']=$row['muted_until']?strtotime($row['muted_until']):null;$row['muted']=$row['muted_until_epoch']!==null&&$row['muted_until_epoch']>time();
-        $row['sort_at']=(string)($row['last_message_at']?:$row['created_at']);$row['sort_at_iso']=date('c',strtotime($row['sort_at']));$row['message_revision']=$this->scalar("SELECT COALESCE(MAX(id),0) FROM messenger_audit WHERE conversation_id=? AND (action IN ('conversation_read','message_edited','message_deleted','message_reacted','message_pinned_shared','message_expiry_changed','message_expired','group_remove','group_leave','group_rename','group_role','group_transfer','group_avatar','group_delete') OR (actor_user_id=? AND action IN ('message_hidden','conversation_deleted_for_user','message_pinned_personal')))",[$row['id'],(int)$actor->id]);
+        $row['sort_at']=(string)($row['last_message_at']?:$row['created_at']);$row['sort_at_iso']=date('c',strtotime($row['sort_at']));$row['message_revision']=$this->scalar("SELECT COALESCE(MAX(id),0) FROM messenger_audit WHERE conversation_id=? AND (action IN ('conversation_read','message_edited','message_deleted','message_reacted','message_pinned_shared','message_expiry_changed','message_expired','poll_created','poll_voted','poll_closed','group_remove','group_leave','group_rename','group_role','group_transfer','group_avatar','group_delete') OR (actor_user_id=? AND action IN ('message_hidden','conversation_deleted_for_user','message_pinned_personal')))",[$row['id'],(int)$actor->id]);
         $items=$this->groupLastMessage($row['id'],$actor,$row['hidden_through_message_id']);if($items)$row['last_message']=$items;
         unset($row['direct_key']);return $row;
     }

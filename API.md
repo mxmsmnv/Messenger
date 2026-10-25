@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.4 (ProcessWire module version `164`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.5 (ProcessWire module version `165`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -591,3 +591,46 @@ to suppress their own foreground alerts as well. Older clients or third-party
 site code that ignore metadata may generate local alerts; do not promise updated
 client behavior merely from installing the module. No real provider was enabled
 by this development work.
+
+
+## Group polls (1.6.5 development candidate)
+
+Backend/API and capability-gated web controls; Narzan integration has its own native acceptance record.
+Requires existing enabled groups and an explicit administrator call to
+`installGroupPolls(User $actor)`. This creates `messenger_polls`,
+`messenger_poll_votes` and `messenger_poll_locks`; no member/discovery migration.
+The additional `src/MessengerPolls.php` runtime must be pinned in consuming sites.
+`pollsReady()` and discovery `group_polls` / session `polls_supported` are capability
+checks, not evidence of production installation.
+
+- `createGroupPoll(User $actor,int $id,string $question,array $options,string $clientId)`:
+  one-line question1–240 characters,2–8 distinct one-line options1–100 characters.
+  Its normal encrypted message body contains the question and numbered options for
+  older clients. Options also have an encrypted structured representation. The
+  existing send policy, limits, idempotency and notifications apply. Never use an
+  ordinary/attachment operation's ID. Return is `message_id`, `conversation_id`, `accepted_client_id`,
+  `ack_visible`, and nullable `poll`; a hidden accepted replay reveals no poll.
+- `groupPoll(User $actor,int $messageId)`: current membership and message visibility
+  apply, including new-member floors, personal hiding, deletion/moderation/expiry.
+- `voteGroupPoll(User $actor,int $messageId,?int $choice)`: exact desired zero-based
+  option or explicit null to retract. One vote per member, changeable until close.
+- `closeGroupPoll(User $actor,int $messageId)`: author or group owner/admin, permanent.
+  An identical accepted vote/close can be retried after close; changes are denied.
+
+REST routes: `POST group-poll-create` with `id,question,options,client_id`;
+`GET group-poll?message_id=…`; `POST group-poll-vote` with `message_id,choice`;
+`POST group-poll-close` with `message_id`. Browser writes require normal CSRF;
+actor/roles never come from request JSON.
+
+Authorized message history adds `poll`: `message_id,options,counts,total,own_choice,
+closed_at,created_by,anonymous:true`. No voter list is returned. Historical anonymous
+votes remain in aggregates after departure/hiding; the former member loses access.
+Joining later does not grant access to an earlier poll. Individual choices are
+encrypted at rest, but this is server-readable encryption, **not E2EE or anonymity
+from the site operator**. Poll bodies cannot be edited into inconsistent ballots;
+forwarding copies ordinary text, not a live shared poll. New effective changes
+share a serialized60/minute member limit; exact desired-state retries are free.
+Conversation locking precedes group/poll row locking, and state is reread with
+current locking reads so a blocked voter cannot vote after a concurrent close.
+
+Group vote/close events advance the group message revision. Global message deletion or expiry erases structured options and individual choices; only an immutable operation tombstone is retained for a redacted acceptance receipt. See [poll verification](docs/POLLS.md).

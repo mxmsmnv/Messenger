@@ -142,3 +142,10 @@ it requires an explicitly supplied `--root`, the exact disposable marker and
 an isolated `narzan_groups_<8hex>` database. Do not point it at a live website.
 Native fixture runs are separate component evidence; browser camera/audio codecs,
 web album layouts and real multi-account phone delivery remain acceptance gates.
+
+
+## Optional polls — 1.6.5 candidate
+
+Explicit separate operator schema and current message/membership permissions apply.
+See [polls](POLLS.md) for single-choice/anonymous aggregate semantics, web controls,
+content erasure, MySQL concurrency evidence and the deployment boundary.

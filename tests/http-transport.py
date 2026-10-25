@@ -14,7 +14,7 @@ def check(ok, why):
 with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
-    env=dict(os.environ,MESSENGER_FIXTURE_DB='sqlite:'+folder+'/fixture.sqlite3',MESSENGER_FIXTURE_TOOLS='1',MESSENGER_FIXTURE_SAVED='1')
+    env=dict(os.environ,MESSENGER_FIXTURE_DB='sqlite:'+folder+'/fixture.sqlite3',MESSENGER_FIXTURE_TOOLS='1',MESSENGER_FIXTURE_SAVED='1',MESSENGER_FIXTURE_POLLS='1')
     env.pop('PHP_CLI_SERVER_WORKERS',None)
     with open(folder+'/server.log','w+') as log:
         server=subprocess.Popen(['php','-S',f'127.0.0.1:{port}',str(ROOT/'tests/support/http-router.php')],cwd=ROOT,env=env,stdout=log,stderr=log)
@@ -221,6 +221,20 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/devices/',token=tokens['access_token'])
             devices=json.loads(text)['result'];check(status==200 and len(devices['items'])==1 and devices['items'][0]['current'],'HTTP own devices and current grant')
             check(tokens['access_token'] not in text and tokens['refresh_token'] not in text,'HTTP device metadata omits credentials')
+            status,text,_=request('/messenger-api/v1/group-create/',{'title':'Weekend poll','user_ids':[22],'client_id':'http_poll_group_0001'},token=tokens['access_token']);check(status==200,'HTTP group creation for poll');gid=json.loads(text)['result']['id']
+            script="namespace ProcessWire;require 'tests/support/bootstrap.php';[$m,$db,$a,$b]=fixture();$operator=new class(99)extends User{public function isSuperuser(){return true;}};$m->installGroups($operator);$m->set('groups_enabled',1);$m->respondGroupInvitation("+str(gid)+",$b,true);"
+            subprocess.run(['php','-r',script],cwd=ROOT,env=env,check=True,timeout=10)
+            payload={'id':gid,'question':'Where?','options':['Harbour','Park'],'client_id':'http_poll_create_001'}
+            status,text,_=request('/messenger-api/v1/group-poll-create/',payload,token=tokens['access_token']);result=json.loads(text)['result'];pmid=result['message_id'];check(status==200 and result['ack_visible'] and result['accepted_client_id']==payload['client_id'] and result['poll']['counts']==[0,0],'HTTP create poll and correlated receipt')
+            status,text,_=request('/messenger-api/v1/group-poll-create/',payload,token=tokens['access_token']);check(status==200 and json.loads(text)['result']['message_id']==pmid,'HTTP poll retry unique')
+            status,text,_=request('/messenger-api/v1/group-poll-create/',payload|{'options':['Changed','Park']},token=tokens['access_token']);check(status==409,'HTTP changed poll retry conflicts')
+            status,text,_=request('/messenger-api/v1/group-poll-vote/',{'message_id':pmid,'choice':1},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['counts']==[0,1],'HTTP poll vote')
+            status,text,_=request('/messenger-api/v1/group-poll/?message_id='+str(pmid),token=tokens['access_token']);check(status==200 and json.loads(text)['result']['own_choice']==1 and 'voters' not in json.loads(text)['result'],'HTTP authorized aggregate and own vote')
+            status,text,_=request('/messenger-api/v1/group-poll-vote/',{'message_id':pmid,'choice':True},token=tokens['access_token']);check(status==400,'HTTP Boolean cannot become a choice index')
+            status,text,_=request('/messenger-api/v1/group-poll-vote/',{'message_id':pmid,'choice':0},browser=True);check(status==403,'browser poll vote needs CSRF')
+            status,text,_=request('/messenger-api/v1/group-poll-vote/',{'message_id':pmid,'choice':0,'fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and json.loads(text)['result']['counts']==[1,0],'browser exact-state vote with CSRF')
+            status,text,_=request('/messenger-api/v1/group-poll-close/',{'message_id':pmid},token=tokens['access_token']);check(status==200 and json.loads(text)['result']['closed_at'] is not None,'HTTP poll close')
+            status,text,_=request('/messenger-api/v1/group-poll-vote/',{'message_id':pmid,'choice':1},token=tokens['access_token']);check(status==403,'HTTP closed poll rejects changed vote')
             status,text,_=request('/messenger-api/v1/devices/',browser=True);check(status==403,'native device API never falls back to browser authority')
             def extra_device():
                 status,_,headers=request('/messenger-mobile/v1/authorize/',data|{'approve':'yes','fixture_csrf':'fixture_csrf_value','device_name':'Second HTTP fixture'},browser=True,form=True)

@@ -4,6 +4,18 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.5] — development candidate, not installed
+
+- Group-poll backend/API with explicit operator schema, encrypted options/choices,
+  anonymous aggregate counts, change/retract and author/admin close, with web
+  controls and the companion Narzan integration.
+- Preserve creation IDs and hidden acceptance; enforce current membership and
+  history floors, bounded input/rates and browser CSRF. Poll text is immutable.
+- Erase structured poll content on deletion/expiry and advance foreground refresh
+  revisions on vote/close. Preserve ordinary web text retry IDs on425/429.
+- Lock conversations before group/poll rows and use current reads at vote time;
+  actual MySQL concurrent close/vote regression prevents stale late votes.
+
 ### [1.6.4] — development candidate, not installed
 
 - Add explicit per-message suppression of email and message push, preserving
