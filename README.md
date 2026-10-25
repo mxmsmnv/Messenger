@@ -12,6 +12,14 @@ Use Messenger when a ProcessWire site needs direct one-to-one conversations with
 
 If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
+## Account-bound call candidate
+
+Messenger1.7.0 adds explicit authenticated account routing for call invitations,
+with legacy call registration/callback compatibility and fresh grant/device/
+recipient checks. It also fixes historical MySQL grant/call collation comparisons.
+No site/provider/schema or native multi-account activation is implied. See
+[verification and limits](docs/ACCOUNT_CALLS.md).
+
 ## Account-bound notification candidate
 
 Messenger1.6.9 adds explicit `account_push` registration so stored accounts may

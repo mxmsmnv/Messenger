@@ -33,9 +33,10 @@ final class MessengerCallPush {
         $values=[];for($i=0;$i<2;$i++){if(!isset($der[$offset+1])||ord($der[$offset])!==2)throw new \RuntimeException('Invalid signing result.');$length=ord($der[$offset+1]);$offset+=2;$value=ltrim(substr($der,$offset,$length),"\0");$offset+=$length;if(strlen($value)>32)throw new \RuntimeException('Invalid signing result.');$values[]=str_pad($value,32,"\0",STR_PAD_LEFT);}
         return implode('',$values);
     }
-    public function send(string $platform,string $token,string $callId,string $caller="Narzan"):bool {
+    public function send(string $platform,string $token,string $callId,string $caller="Narzan",?string $account=null):bool {
         $name=mb_substr(trim((string)preg_replace('/[\\x00-\\x1F\\x7F]/u','',$caller)),0,100);
         $payload=['kind'=>'call','call_id'=>$callId,'caller'=>$name!==''?$name:'Narzan'];
+        if($account!==null){if(strlen($account)>2048||!preg_match('/^https:\/\/[^#\x00-\x20]+#[a-f0-9]{64}#[1-9][0-9]{0,18}#[a-f0-9]{32}$/D',$account))throw new \InvalidArgumentException('Invalid account call routing.');$payload['narzan_account']=$account;}
         if($platform==='android') {
             $project=(string)($this->config['firebase_project']??'');if(!preg_match('/^[a-z][a-z0-9-]{4,62}$/D',$project))throw new \RuntimeException('Firebase project unavailable.');
             [$status]=$this->post('https://fcm.googleapis.com/v1/projects/'.$project.'/messages:send',['Authorization: Bearer '.$this->firebaseAccess(),'Content-Type: application/json'],json_encode(['message'=>['token'=>$token,'data'=>$payload,'android'=>['priority'=>'HIGH','ttl'=>'45s','collapse_key'=>$callId]]],JSON_THROW_ON_ERROR));

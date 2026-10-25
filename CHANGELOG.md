@@ -4,6 +4,15 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.7.0] — development candidate, not installed
+
+- Add explicit authenticated account-bound call registration and exact recipient/
+  connection metadata in VoIP invitations, with legacy registration/callback
+  compatibility and no schema/provider activation.
+- Recheck current recipient/device/grant eligibility before dispatch, preserve
+  worker context and keep provider payloads free of message/SDP content. Native
+  account-aware CallKit/Android ownership remains a separate integration gate.
+
 ### [1.6.9] — development candidate, not installed
 
 - Add explicit account-bound message push registration without a schema change.

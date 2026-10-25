@@ -35,6 +35,7 @@ php tests/media-catalog.php
 php tests/activity.php
 php tests/saved-messages.php
 php tests/calls.php
+php tests/account-calls.php
 php tests/call-events.php
 php tests/write-acks.php
 php tests/silent-messages.php

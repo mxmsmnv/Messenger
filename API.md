@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.9 (ProcessWire module version `169`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.7.0 (ProcessWire module version `170`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -372,7 +372,7 @@ a token to one current grant; user/device revocation, mute, read state, hidden/d
 messages and blocks are rechecked before dispatch. Registration cannot select a
 user or conversation. Discovery advertises `message_push` only when ready.
 
-Messenger1.6.9 also advertises `account_push` when message push is ready. A client
+Messenger1.7.0 also advertises `account_push` when message push is ready. A client
 with a validated local account registry may explicitly add `account_binding:true`
 to registration. The response acknowledges `account_binding` and its authenticated
 `connection_id`. Never choose the user/grant in the request. Legacy bodies and
@@ -411,6 +411,28 @@ promise delivery in that state. OS notification/Focus settings remain controllin
 ## Opt-in group conversations
 
 Messenger1.5.3 adds the explicitly installed group core. See [group API, permissions and verification boundaries](docs/GROUPS.md). Existing inbox/search callers stay direct-only unless they request `include_groups=1`; discovery only advertises `groups` after operator activation and schema readiness. New group messages use the existing authorization/encryption/media transport; group calls and end-to-end encryption are not implied.
+
+## Account-bound call registration — 1.7.0 candidate
+
+When `accountCallsReady()` confirms existing operator configuration/schema,
+discovery advertises `account_calls` and call-config includes
+`account_binding_supported:true`. `POST call-device` may explicitly add boolean
+`account_binding:true`; the reply acknowledges that mode and the authenticated
+`connection_id`. No request field chooses a user/grant. Existing registration
+bodies/replies remain unchanged; this does not install or enable calling.
+
+Bound invitation callbacks receive a fifth `accountKey` argument containing exact
+`issuer#siteId#memberId#connectionId`; legacy callbacks remain four arguments. The
+built-in APNs/FCM sender includes it as `narzan_account`. Custom providers must
+preserve that argument for new clients. The token's authenticated-encryption
+context distinguishes binding mode without schema changes or ambiguous token
+prefixes. Fresh device/recipient/caller-grant checks precede dispatch.
+
+This scope is only a routing hint into an already stored, server-confirmed native
+account. Native call state/media acceptance still requires authorization; never
+open a URL or use current-account fallback from push data. VoIP native lifecycle
+and multi-account activation are separate acceptance gates. See
+[verification, compatibility and collation fix](docs/ACCOUNT_CALLS.md).
 
 ## Native device sessions — 1.5.4
 
@@ -679,7 +701,7 @@ Messages add actor-specific `mentioned` and encrypted-at-rest captured `mentions
 entities; group summaries add own `mentions_only` and independent unread
 `last_mention`. No template-side SQL, recipient impersonation or automatic migration.
 
-## Group events (1.6.9 development candidate)
+## Group events (1.7.0 development candidate)
 
 See [the event, consent and operator contract](docs/GROUP_EVENTS.md). Public methods:
 `installGroupEvents`, `createGroupEvent`, `groupEvent`, `updateGroupEvent`,

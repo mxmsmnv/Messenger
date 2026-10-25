@@ -31,6 +31,23 @@ trait MessengerCalls {
     public function experimentalCallsReady(): bool {
         $c=$this->callsConfig();return !empty($c['enabled']) && strlen((string)($c['turn_secret']??''))>=32 && !empty($c['turn_urls']) && !empty($c['push_ready']);
     }
+    /** Opaque native grants compare byte-exactly across historical MySQL collations. */
+    private function callPushGrantJoin():string {
+        return $this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql'?'g.id=CAST(d.grant_id AS BINARY)':'g.id=d.grant_id';
+    }
+    public function accountCallsReady():bool {
+        if(!$this->experimentalCallsReady())return false;
+        try{return $this->wire('database')->query('SELECT grant_id,token FROM messenger_call_devices LIMIT 0')!==false;}
+        catch(\PDOException $error){return false;}
+    }
+    /** Authenticate mode with AAD, never an ambiguous plaintext token prefix. */
+    private function accountCallRegistration(string $stored,string $grant):array {
+        if($stored==='')throw new WirePermissionException('Call registration unavailable.');
+        try{$token=$this->decryptValue($stored,'Messenger|call-device-account|'.$grant);$bound=true;}
+        catch(WireException $error){$token=$this->decryptValue($stored,'Messenger|call-device|'.$grant);$bound=false;}
+        if($token==='')throw new WirePermissionException('Call registration unavailable.');
+        return [$token,$bound];
+    }
     /** Explicit administrative setup only. Existing messaging schema/data remain untouched. */
     public function installExperimentalCalls(User $actor): void {
         if(!$this->canAdmin($actor))throw new WirePermissionException('Administrative access required.');
@@ -93,7 +110,7 @@ trait MessengerCalls {
         $result=['sent'=>0,'retry'=>0,'discarded'=>0];if(!$this->experimentalCallsReady())return $result;
         $db=$this->wire('database');$this->expireExperimentalCalls();$now=time();$limit=max(1,min(20,$limit));
         $this->execute("UPDATE messenger_call_pushes SET status='pending' WHERE status='processing' AND available_at<?",[$now-30]);
-        $q=$db->prepare("SELECT p.call_id,p.grant_id,d.platform,d.token,c.caller_id,c.conversation_id FROM messenger_call_pushes p JOIN messenger_calls c ON c.id=p.call_id JOIN messenger_call_devices d ON d.grant_id=p.grant_id JOIN messenger_mobile_grants g ON g.id=d.grant_id WHERE p.status='pending' AND p.attempts<3 AND p.available_at<=? AND c.state='ringing' AND c.expires_at>? AND d.enabled=1 AND g.revoked_at IS NULL ORDER BY p.available_at LIMIT ".$limit);$q->execute([$now,$now]);
+        $q=$db->prepare("SELECT p.call_id,p.grant_id,d.platform,d.token,c.caller_id,c.conversation_id FROM messenger_call_pushes p JOIN messenger_calls c ON c.id=p.call_id JOIN messenger_call_devices d ON d.grant_id=p.grant_id JOIN messenger_mobile_grants g ON ".$this->callPushGrantJoin()." WHERE p.status='pending' AND p.attempts<3 AND p.available_at<=? AND c.state='ringing' AND c.expires_at>? AND d.enabled=1 AND g.revoked_at IS NULL ORDER BY p.available_at LIMIT ".$limit);$q->execute([$now,$now]);
         foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$row){
             $claim=$db->prepare("UPDATE messenger_call_pushes SET status='processing',attempts=attempts+1,available_at=? WHERE call_id=? AND grant_id=? AND status='pending'");$claim->execute([$now,$row['call_id'],$row['grant_id']]);if($claim->rowCount()!==1)continue;
             try{
@@ -104,9 +121,16 @@ trait MessengerCalls {
                 try {$users->setCurrentUser($caller);$call=$this->callRow($caller,$row['call_id']);}
                 finally {$users->setCurrentUser($previous);}
                 if($call['state']!=='ringing')throw new WirePermissionException('Call no longer ringing.');
-                $token=$this->decryptValue($row['token'],'Messenger|call-device|'.$row['grant_id']);
+                $origin=$db->prepare('SELECT user_id FROM messenger_mobile_grants WHERE id=? AND revoked_at IS NULL');$origin->execute([$call['caller_grant']]);if((int)$origin->fetchColumn()!==(int)$call['caller_id'])throw new WirePermissionException('Caller connection unavailable.');
+                $live=$db->prepare('SELECT d.user_id,d.platform,d.token,d.enabled,d.updated_at,g.revoked_at FROM messenger_call_devices d JOIN messenger_mobile_grants g ON '.$this->callPushGrantJoin().' AND g.user_id=d.user_id WHERE d.grant_id=?');$live->execute([$row['grant_id']]);$registration=$live->fetch(\PDO::FETCH_ASSOC);
+                if(!$registration||!$registration['enabled']||$registration['revoked_at']!==null||$registration['updated_at']<$now-2592000||(int)$registration['user_id']!==(int)$call['callee_id'])throw new WirePermissionException('Call registration unavailable.');
+                $recipient=$users->get((int)$call['callee_id']);
+                try{$users->setCurrentUser($recipient);$current=$this->callRow($recipient,$row['call_id']);if($current['state']!=='ringing')throw new WirePermissionException('Call unavailable.');}
+                finally{$users->setCurrentUser($previous);}
+                [$token,$bound]=$this->accountCallRegistration($registration['token'],$row['grant_id']);
+                $account=null;if($bound){$discovery=(new MessengerMobileAuth($this))->discovery();$account=$discovery['issuer'].'#'.$discovery['site_id'].'#'.(int)$recipient->id.'#'.$row['grant_id'];}
                 $name=(string)($caller->get('display_name')?:$caller->get('title')?:$caller->name);
-                $accepted=$send($row['platform'],$token,$row['call_id'],mb_substr(trim((string)preg_replace('/[\\x00-\\x1F\\x7F]/u','',$name)),0,100));
+                $args=[$registration['platform'],$token,$row['call_id'],mb_substr(trim((string)preg_replace('/[\\x00-\\x1F\\x7F]/u','',$name)),0,100)];if($account!==null)$args[]=$account;$accepted=$send(...$args);if(!is_bool($accepted))throw new \RuntimeException('Invalid call provider acknowledgement.');
                 if(!$accepted)$this->execute('UPDATE messenger_call_devices SET enabled=0 WHERE grant_id=?',[$row['grant_id']]);
                 $status=$accepted?'sent':'discarded';$result[$status]++;
             }catch(WirePermissionException $e){$status='discarded';$result['discarded']++;}
@@ -120,7 +144,9 @@ trait MessengerCalls {
         return $result;
     }
     private function expireExperimentalCalls():void {
-        $this->execute("UPDATE messenger_calls SET state='ended' WHERE state IN ('ringing','active') AND (expires_at<=? OR (state='active' AND (caller_seen<? OR callee_seen<?)) OR caller_grant NOT IN (SELECT id FROM messenger_mobile_grants WHERE revoked_at IS NULL) OR (answer_grant IS NOT NULL AND answer_grant NOT IN (SELECT id FROM messenger_mobile_grants WHERE revoked_at IS NULL)))",[time(),time()-45,time()-45]);
+        $mysql=$this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql';
+        $caller=$mysql?'CAST(caller_grant AS BINARY)':'caller_grant';$answer=$mysql?'CAST(answer_grant AS BINARY)':'answer_grant';$id=$mysql?'CAST(id AS BINARY)':'id';
+        $this->execute("UPDATE messenger_calls SET state='ended' WHERE state IN ('ringing','active') AND (expires_at<=? OR (state='active' AND (caller_seen<? OR callee_seen<?)) OR ".$caller." NOT IN (SELECT ".$id." FROM messenger_mobile_grants WHERE revoked_at IS NULL) OR (answer_grant IS NOT NULL AND ".$answer." NOT IN (SELECT ".$id." FROM messenger_mobile_grants WHERE revoked_at IS NULL)))",[time(),time()-45,time()-45]);
     }
     private function callConversation(User $actor,int $id):array {
         if($this->scalar("SELECT COUNT(*) FROM messenger_conversations WHERE id=? AND type<>'direct'",[$id]))throw new WirePermissionException('Direct conversation required.');
@@ -147,7 +173,7 @@ trait MessengerCalls {
         $this->assertActor($actor);
         if($resource==='call-config') {
             if($method!=='GET')throw new \InvalidArgumentException('GET required.');
-            return ['enabled'=>$this->experimentalCallsReady(),'feedback_enabled'=>$this->experimentalCallFeedbackReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45];
+            return ['enabled'=>$this->experimentalCallsReady(),'feedback_enabled'=>$this->experimentalCallFeedbackReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45,'account_binding_supported'=>$this->accountCallsReady()];
         }
         if(!preg_match('/^[a-f0-9]{32}$/D',$grant))throw new WirePermissionException('Native connection required.');
         $db=$this->wire('database');
@@ -156,14 +182,15 @@ trait MessengerCalls {
         if($resource==='call-feedback')return $this->saveExperimentalCallFeedback($actor,$grant,$method,$body);
         if(!$this->experimentalCallsReady())throw new WirePermissionException('Experimental calls are not configured.');
         if($resource==='call-device') {
-            if($method!=='POST' || !isset($body['enabled']) || !is_bool($body['enabled']))throw new \InvalidArgumentException('Enabled flag required.');
+            if((array_key_exists('account_binding',$body)&&!is_bool($body['account_binding']))||$method!=='POST' || !isset($body['enabled']) || !is_bool($body['enabled']))throw new \InvalidArgumentException('Enabled flag required.');
+            $binding=$body['account_binding']??false;if($binding&&!$this->accountCallsReady())throw new WirePermissionException('Account calls unavailable.');
             $platform=$body['platform']??'';$token=$body['token']??'';
             if(!in_array($platform,['ios','android'],true)||!is_string($token)||strlen($token)>4096||($body['enabled']&&$token===''))throw new \InvalidArgumentException('Push registration required.');
-            return $this->atomic(function()use($actor,$grant,$body,$platform,$token):array{
+            return $this->atomic(function()use($actor,$grant,$body,$platform,$token,$binding):array{
                 $this->execute('DELETE FROM messenger_call_devices WHERE grant_id=?',[$grant]);
-                $this->execute('INSERT INTO messenger_call_devices(grant_id,user_id,platform,token,enabled,updated_at) VALUES(?,?,?,?,?,?)',[$grant,(int)$actor->id,$platform,$this->encryptValue($token,'Messenger|call-device|'.$grant),$body['enabled']?1:0,time()]);
+                $this->execute('INSERT INTO messenger_call_devices(grant_id,user_id,platform,token,enabled,updated_at) VALUES(?,?,?,?,?,?)',[$grant,(int)$actor->id,$platform,$this->encryptValue($token,($binding?'Messenger|call-device-account|':'Messenger|call-device|').$grant),$body['enabled']?1:0,time()]);
                 if(!$body['enabled'])$this->execute("UPDATE messenger_calls SET state='ended' WHERE (caller_grant=? OR answer_grant=?) AND state IN ('ringing','active')",[$grant,$grant]);
-                return ['enabled'=>$body['enabled']];
+                $result=['enabled'=>$body['enabled']];if(array_key_exists('account_binding',$body)){$result['account_binding']=$binding;$result['connection_id']=$grant;}return $result;
             });
         }
         $this->callsDevice($actor,$grant);$this->expireExperimentalCalls();
@@ -179,7 +206,7 @@ trait MessengerCalls {
                     $own=$db->prepare("SELECT COUNT(*) FROM messenger_calls WHERE expires_at>? AND state IN ('ringing','active') AND (caller_id=? OR callee_id=?)");$own->execute([time(),(int)$actor->id,(int)$actor->id]);
                     throw new MessengerMobileException((int)$own->fetchColumn()>0?'caller_busy':'peer_busy','A call is already in progress.',409);
                 }
-                $q=$db->prepare('SELECT d.grant_id FROM messenger_call_devices d JOIN messenger_mobile_grants g ON g.id=d.grant_id WHERE d.user_id=? AND d.enabled=1 AND g.revoked_at IS NULL AND d.updated_at>?');$q->execute([$peer,time()-2592000]);$devices=$q->fetchAll(\PDO::FETCH_COLUMN);if(!$devices)throw new WirePermissionException('The other person has not enabled calls.');
+                $q=$db->prepare('SELECT d.grant_id FROM messenger_call_devices d JOIN messenger_mobile_grants g ON '.$this->callPushGrantJoin().' WHERE d.user_id=? AND d.enabled=1 AND g.revoked_at IS NULL AND d.updated_at>?');$q->execute([$peer,time()-2592000]);$devices=$q->fetchAll(\PDO::FETCH_COLUMN);if(!$devices)throw new WirePermissionException('The other person has not enabled calls.');
                 $h=bin2hex(random_bytes(16));$id=substr($h,0,8).'-'.substr($h,8,4).'-4'.substr($h,13,3).'-'.dechex((hexdec($h[16])&3)|8).substr($h,17,3).'-'.substr($h,20);
                 $this->execute("INSERT INTO messenger_calls(id,client_id,conversation_id,caller_id,callee_id,caller_grant,state,sequence,created_at,expires_at) VALUES(?,?,?,?,?,?,'ringing',0,?,?)",[$id,$client,(int)$chat['id'],(int)$actor->id,$peer,$grant,time(),time()+45]);
                 $this->execute('UPDATE messenger_calls SET caller_seen=? WHERE id=?',[time(),$id]);
