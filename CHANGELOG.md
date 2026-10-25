@@ -4,6 +4,12 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-24
 
+### [1.5.5] — development candidate, not installed
+
+- Add explicit forwarding of one to ten visible messages to an accepted direct/group conversation. Create independent encrypted file/voice copies with a fresh album ID, trusted forwarding marker and no disclosure of the original sender or private conversation.
+- Freeze selected content revisions, reject intervening edits, commit batches atomically and preserve immutable manual retries after ambiguous writes. Recheck destination access, group join floors, blocks, attachment limits and rate policy.
+- Add web selection/recipient confirmation through existing CSRF/actor protection. The additive schema and message-tools setting require separate operator actions; legacy sites remain off and patch upgrades do not migrate data.
+
 ### [1.5.4] — development candidate, not installed
 
 - Add authenticated native device/session listing and single/other-device revocation using the existing mobile grant tables. Keep the current grant server-derived, isolate users, omit token credentials and exclude expired connections from the active list.

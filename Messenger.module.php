@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/src/MessengerCalls.php';
 require_once __DIR__ . '/src/MessengerGroups.php';
+require_once __DIR__ . '/src/MessengerMessageTools.php';
 require_once __DIR__ . '/src/MessengerMessagePush.php';
 require_once __DIR__ . '/src/MessengerBroadcasts.php';
 require_once __DIR__ . '/src/MessengerMobileAuth.php';
@@ -14,6 +15,7 @@ require_once __DIR__ . '/src/MessengerWireWallIntegration.php';
  */
 class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerGroups;
+	use MessengerMessageTools;
 	use MessengerBroadcasts;
 	use MessengerCalls;
 	use MessengerMessagePush;
@@ -21,7 +23,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 154;
+	public const VERSION = 155;
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
 	private const ENCRYPTION_CONTEXT = 'ProcessWire|Messenger|at-rest|v1';
@@ -45,7 +47,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 154,
+			'version' => 155,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -64,6 +66,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			'frontend_custom_map' => '',
 			'first_contact_mode' => 'requests',
 			'groups_enabled' => 0,
+			'message_tools_enabled' => 0,
 			'max_message_length' => 5000,
 			'max_messages_minute' => 20,
 			'max_new_recipients_day' => 20,
@@ -149,6 +152,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$customMap->notes = '{"input":{"class":"my-input"},"button_primary":{"class":"my-button","data-variant":"primary"},"badge":{"class":"my-badge"}}';
 		$contactMode = $add($experience, 'InputfieldSelect', 'first_contact_mode', $this->_('First contact policy'), $this->_('Message Requests protects members from unsolicited conversations. A site may override this through Messenger::messagingDecision.'), 50);
 		$add($experience, 'InputfieldCheckbox', 'groups_enabled', $this->_('Enable group conversations'), $this->_('Requires the explicit installGroups migration. Invitations require acceptance; new members cannot read earlier history.'), 100);
+		$add($experience, 'InputfieldCheckbox', 'message_tools_enabled', $this->_('Enable message tools'), $this->_('Requires the explicit installMessageTools migration. Forwarded attachments become independently authorized copies.'), 100);
 		$contactMode->addOptions([
 			'requests' => $this->_('Message Requests'),
 			'open' => $this->_('Open messaging'),
@@ -443,7 +447,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$body = $this->messageBody($body);
 		$clientId = $this->clientId($clientId);
 		$db = $this->wire('database');
-		$db->beginTransaction();
+		$owned=!$db->inTransaction();if($owned)$db->beginTransaction();
 		try {
 			// Serialize pending-count validation with insertion on this conversation.
 			$stmt = $db->prepare('SELECT id FROM `' . self::TABLE_CONVERSATIONS . '` WHERE id=?' . $this->forUpdate($db));
@@ -456,7 +460,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			if((string)$conversation['request_state'] === 'declined') throw new WirePermissionException('This request was declined.');
 			if($attachment!==null&&(string)$conversation['request_state']!=='accepted')throw new WirePermissionException('Accept the request before sharing files.');
 			$existing = $this->messageByClientId((int)$actor->id, $clientId);
-			if($existing) { $result = $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment),$clientId); $db->commit(); return $result; }
+			if($existing) { $result = $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment),$clientId); if($owned)$db->commit(); return $result; }
 			if((string)$conversation['request_state'] === 'pending' && (int)$conversation['requester_id'] !== (int)$actor->id) throw new WirePermissionException('Accept the message request before replying.');
 			if((string)$conversation['request_state'] === 'pending') {
 				$count = $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE conversation_id=? AND sender_user_id=? AND deleted_at IS NULL', [$conversationId, (int)$actor->id]);
@@ -469,12 +473,12 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$mediaGroup=$this->messageMediaGroup($message,$clientId);if($mediaGroup!==null)$message['media_group_id']=$mediaGroup;
 			if(($conversation['type']??'direct')!=='group')$this->queueEmailNotification($conversationId, (int)$message['id'], $otherId, $now);
 			$this->audit('message_sent', $conversationId, (int)$message['id'], (int)$actor->id);
-			$db->commit();
+			if($owned)$db->commit();
 			return $message;
 		} catch(\Throwable $error) {
-			if($db->inTransaction()) $db->rollBack();
+			if($owned&&$db->inTransaction()) $db->rollBack();
 			// Only uniqueness races may be replayed, never authorization/policy errors.
-			if($error instanceof \PDOException && in_array((string)$error->getCode(), ['23000','23505'], true)) {
+			if($owned && $error instanceof \PDOException && in_array((string)$error->getCode(), ['23000','23505'], true)) {
 				$existing = $this->messageByClientId((int)$actor->id, $clientId);
 				if($existing) return $this->replayMessage($existing, $conversationId, $this->attachmentRequestBody($body,$attachment),$clientId);
 			}
@@ -538,7 +542,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		if(!$afterId) $items = array_reverse($items);
 		$groupReaders=($conversation['type']??'direct')==='group'?$this->groupReaders($conversationId):[];
 		foreach($items as &$item) { $item=$this->applyExpiry($item);$item['id'] = (int)$item['id']; $item['conversation_id'] = (int)$item['conversation_id']; $item['sender_user_id'] = (int)$item['sender_user_id']; $item['body'] = $item['deleted_at'] ? '' : $this->decryptMessageRow($item); $item['attachment']=$item['deleted_at']?null:$this->messageAttachment((int)$item['id']); $mediaGroup=$this->messageMediaGroup($item,(string)$item['client_id']);if($mediaGroup!==null)$item['media_group_id']=$mediaGroup; unset($item['client_id']); $item=$this->memberMessagePresentation($item,$actor); if(($conversation['type']??'direct')==='group'){$item+=$this->groupReceipt($item,$groupReaders);$u=$this->wire('users')->get((int)$item['sender_user_id']);$item['sender']=['id'=>(int)$u->id,'name'=>(string)$u->name,'title'=>(string)($u->get('display_name')?:$u->get('title')?:$u->name)];} }
-		return $items;
+		return $this->messageToolsPresentation($items,$actor);
 	}
 
 	/** Read-only participant metadata; never decrypt content or expire/mutate rows on this path. */
@@ -813,6 +817,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		}
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger-media.js?v=' . self::VERSION);
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger-groups.js?v=' . self::VERSION);
+		$config->scripts->add($config->urls->Messenger . 'assets/messenger-tools.js?v=' . self::VERSION);
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger.js?v=' . self::VERSION);
 		$endpoint = (string)($options['api'] ?? '/messenger-api/' . self::REST_API_VERSION . '/');
 		return '<section' . $this->frontendAttributes('app', [
@@ -865,7 +870,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=154) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=155) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 

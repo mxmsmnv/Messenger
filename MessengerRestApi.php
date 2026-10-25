@@ -56,6 +56,11 @@ final class MessengerRestApi extends Wire {
                 return $this->response(200,$result);
             }
 			if(str_starts_with($resource,'group-'))return $this->response(200,$this->messenger->groupRequest($actor,$resource,$method,$body,['id'=>$this->wire()->input->get('id')]));
+            if($resource==='forward'){
+                $this->allow($method,['POST']);
+                if(!is_int($body['from_id']??null)||!is_int($body['to_id']??null)||!is_array($body['message_ids']??null)||!is_array($body['source_versions']??null)||!is_string($body['client_id']??null))throw new \InvalidArgumentException('Source, destination, messages and client ID required.');
+                return $this->response(200,$this->messenger->forwardMessages($actor,$body['from_id'],$body['to_id'],$body['message_ids'],$body['client_id'],$body['source_versions']));
+            }
 			switch($resource) {
 				case 'client-policy':
 					$this->allow($method,['GET']);$result=$this->messenger->clientPolicy($actor);break;
@@ -218,6 +223,7 @@ final class MessengerRestApi extends Wire {
 		// Only the authenticated member may read their own minimal profile.
 		if($result['is_login'] && $result['can_use']) {
 			$result['groups_supported']=$this->messenger->groupsReady();
+            $result['forwarding_supported']=$this->messenger->forwardingReady();
 			$result['name'] = (string)$actor->name;
 			$result['title'] = (string)($actor->get('display_name') ?: $actor->get('title') ?: $actor->name);
 		}

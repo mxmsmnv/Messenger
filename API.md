@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.4 (ProcessWire module version `154`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.5 (ProcessWire module version `155`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -398,3 +398,15 @@ Discovery feature `device_sessions` exposes `devices`, `revoke-device` and
 No new schema is introduced; existing browser device management remains CSRF
 protected. A revoked native session must stop local audio and clear private
 session state. Already delivered plaintext/provider alerts cannot be recalled.
+
+## Explicit forwarding — 1.5.5 candidate
+
+Disabled by default. An administrator must call `installMessageTools($operator)` and separately enable `message_tools_enabled`; discovery then includes `forwarding`, and browser session includes `forwarding_supported`. No member request or patch upgrade creates these tables.
+
+`POST /messenger-api/v1/forward/` accepts `{from_id, to_id, message_ids, source_versions, client_id}`. IDs are positive integers; select1–10 distinct messages and freeze each displayed `content_revision` string in the `source_versions` object keyed by message ID. Reusing a client ID with another selection or destination returns409 `idempotency_conflict`; changing a selected message returns409 `message_changed`. Refresh and explicitly select again after a definitive stale-selection failure.
+
+Returns `{conversation, messages}`. Text, captions and independently encrypted file/voice copies preserve the original content, marked `forwarded:true`; the authenticated actor is the new sender. Source user/chat/message identities are not disclosed. A photo batch has a fresh explicit album ID. The source actor must currently see every selected message; target must be accepted, sendable, unblocked and within site limits. Group membership/history floors apply. Total file bytes are capped at32MiB per atomic operation. Existing per-file and per-user restrictions still apply. All copies commit or roll back together.
+
+A matching retry returns the existing destination copies, even after the original was deleted or source access ended, but still requires current destination access. It cannot restore a hidden/deleted copy. Store a manual retry ID and its entire immutable payload until acknowledgement; do not automatically retry or replace the payload after a network timeout. Native Bearer requests retain credential separation; browser writes require the existing CSRF token and actor guard.
+
+`messenger_forward_ops` stores the actor, client ID, keyed request fingerprint, destination, encrypted result IDs and creation epoch. `messenger_message_markers` stores only a trusted message-kind marker. As with existing Messenger data, uninstall retains these tables. This is encryption at rest, not end-to-end encryption. The new client/web controls do not activate the feature on an existing site.

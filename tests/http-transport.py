@@ -14,7 +14,7 @@ def check(ok, why):
 with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
-    env=dict(os.environ,MESSENGER_FIXTURE_DB='sqlite:'+folder+'/fixture.sqlite3')
+    env=dict(os.environ,MESSENGER_FIXTURE_DB='sqlite:'+folder+'/fixture.sqlite3',MESSENGER_FIXTURE_TOOLS='1')
     env.pop('PHP_CLI_SERVER_WORKERS',None)
     with open(folder+'/server.log','w+') as log:
         server=subprocess.Popen(['php','-S',f'127.0.0.1:{port}',str(ROOT/'tests/support/http-router.php')],cwd=ROOT,env=env,stdout=log,stderr=log)
@@ -113,6 +113,20 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             check(status==409 and json.loads(text)['code']=='idempotency_conflict','changed HTTP feedback retry rejected')
             status,text,_=request('/messenger-api/v1/call-feedback/',feedback|{'consent':False},token=tokens['access_token'])
             check(status==400,'HTTP feedback requires explicit boolean consent')
+            # Explicitly prepare only the owned synthetic database; never mutate a live site's policy.
+            cid=started['conversation']['id']
+            with sqlite3.connect(folder+'/fixture.sqlite3') as fixture_db:
+                fixture_db.execute("UPDATE messenger_conversations SET request_state='accepted' WHERE id=?",(cid,))
+            status,text,_=request('/messenger-api/v1/messages/?id='+str(cid),token=tokens['access_token'])
+            selected_message=next(m for m in json.loads(text)['result'] if m['id']==message_id)
+            forward_payload={'from_id':cid,'to_id':cid,'message_ids':[message_id],'source_versions':{str(message_id):selected_message['content_revision']},'client_id':'http_forward_operation_01'}
+            status,text,_=request('/messenger-api/v1/forward/',forward_payload,browser=True);check(status==403,'web forwarding still requires CSRF')
+            status,text,_=request('/messenger-api/v1/forward/',forward_payload,token=tokens['access_token']);forwarded=json.loads(text)['result'];check(status==200 and forwarded['messages'][0]['forwarded'],'native HTTP forward accepted with frozen revision')
+            status,text,_=request('/messenger-api/v1/forward/',forward_payload,token=tokens['access_token']);check(json.loads(text)['result']['messages'][0]['id']==forwarded['messages'][0]['id'],'HTTP retry returns original independent copy')
+            forward_payload['client_id']='http_forward_browser_02';forward_payload['fixture_csrf']='fixture_csrf_value'
+            status,text,_=request('/messenger-api/v1/forward/',forward_payload,browser=True);check(status==200 and json.loads(text)['result']['messages'][0]['id']!=forwarded['messages'][0]['id'],'valid browser forwarding uses existing session CSRF boundary')
+            forward_payload['source_versions']={str(message_id):'0'*64};forward_payload['client_id']='http_forward_changed_03'
+            status,text,_=request('/messenger-api/v1/forward/',forward_payload,token=tokens['access_token']);check(status==409 and json.loads(text)['code']=='message_changed','HTTP stale selection is a typed conflict')
             status,text,_=request('/messenger-api/v1/devices/',token=tokens['access_token'])
             devices=json.loads(text)['result'];check(status==200 and len(devices['items'])==1 and devices['items'][0]['current'],'HTTP own devices and current grant')
             check(tokens['access_token'] not in text and tokens['refresh_token'] not in text,'HTTP device metadata omits credentials')
