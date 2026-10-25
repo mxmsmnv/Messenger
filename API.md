@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.9 (ProcessWire module version `159`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.0 (ProcessWire module version `160`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -483,3 +483,11 @@ No peer notifications, calls, contact/block actions or shared pin scope apply.
 Authorized file access, search, forwarding and personal pins/reactions retain
 normal access checks. Disabling the feature blocks metadata, messages, files and
 message-info reads; rows are retained. No production activation is included.
+
+## Conversation media catalog (1.6.0)
+
+`conversationMedia(User $actor, int $conversationId, string $category, ?int $beforeId=null, int $limit=30, string $query=''): array` and authenticated GET `media-catalog?id=…&category=visual|documents|audio|links&before=…&limit=30` scan normal authorized conversation history. Discovery advertises `media_catalog`; authenticated session metadata adds `media_catalog_supported`.
+
+The response contains category, newest-first items, scanned (at most500), complete and next_before. An empty intermediate page is not the end: continue its exclusive cursor. Limits are1–50; no more than500 rows are scanned per request. Visual includes image/video MIME; audio includes voice/audio MIME; documents are other attachments; links contain HTTP(S) text only. Link detection makes no external request. Attachments still require their normal authenticated download, and returning to an original must revalidate its visibility. No new plaintext index, schema, global media count or legacy inbox behavior.
+
+The optional catalog `q` is empty or2–128 Unicode characters and matches visible message text or attachment filenames case-insensitively. Non-string HTTP queries fail validation.

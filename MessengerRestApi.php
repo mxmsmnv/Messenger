@@ -151,6 +151,12 @@ final class MessengerRestApi extends Wire {
 					$this->allow($method, ['GET']);
 					$result = $this->messenger->searchMessages($actor, (string)$this->wire()->input->get('q'), $this->queryInt('limit', 30, 50), (string)$this->wire()->input->get('include_groups')==='1');
 					break;
+				case 'media-catalog':
+					$this->allow($method,['GET']);
+					$category=$this->wire()->input->get('category');if(!is_string($category))throw new \InvalidArgumentException('A media category is required.');
+					$query=$this->wire()->input->get('q');if($query!==null&&!is_string($query))throw new \InvalidArgumentException('Invalid media query.');
+					$result=$this->messenger->conversationMedia($actor,$this->conversationId($actor,$this->identifier()),$category,$this->nullablePositiveQueryInt('before'),$this->queryInt('limit',30,50),$query??'');
+					break;
 				case 'search-history':
 					$this->allow($method,['GET']);
 					$query=$this->wire()->input->get('q');if(!is_string($query))throw new \InvalidArgumentException('A search query is required.');
@@ -252,6 +258,7 @@ final class MessengerRestApi extends Wire {
 		// Only the authenticated member may read their own minimal profile.
 		if($result['is_login'] && $result['can_use']) {
             $result['history_search_supported']=true;
+            $result['media_catalog_supported']=true;
             $result['saved_messages_supported']=$this->messenger->savedMessagesReady();
 			$result['groups_supported']=$this->messenger->groupsReady();
             $result['forwarding_supported']=$this->messenger->forwardingReady();

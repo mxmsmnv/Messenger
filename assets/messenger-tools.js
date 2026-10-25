@@ -58,22 +58,25 @@
   if(host.saved){
    var existing=host.root.querySelector('[data-messenger-new]');if(existing){var actions=host.el('div','MessengerHeaderActions');existing.before(actions);actions.append(existing,button('Saved messages',openSaved));}
   }
-  function historySearch(id){
-   var d=pinDialog('Search entire chat history'),input=host.el('input'),results=host.el('div','MessengerHistoryResults'),pager=host.el('div','MessengerGroupActions');
+  function historySearch(id,catalog){
+   var d=pinDialog(catalog?'Chat media':'Search entire chat history'),input=host.el('input'),results=host.el('div','MessengerHistoryResults'),pager=host.el('div','MessengerGroupActions');
    input.type='search';input.maxLength=256;input.placeholder='Search this chat';input.setAttribute('aria-label','Search this chat');
-   var busy=false,epoch=0,controller=null,timer=null,next=null,current=null,trail=[],sawMatches=false;
-   var search=button('Search',function(){run(null,false,false);});search.disabled=true;
-   function stop(){epoch++;if(controller)controller.abort();controller=null;clearTimeout(timer);busy=false;search.disabled=Array.from(input.value.trim()).length<2||Array.from(input.value.trim()).length>128;}
+   var busy=false,epoch=0,controller=null,timer=null,next=null,current=null,trail=[],sawMatches=false,category='visual',tabs=null;
+   function validQuery(){var length=Array.from(input.value.trim()).length;return length<=128&&(length>=2||(catalog&&length===0));}
+   var search=button('Search',function(){run(null,false,false);});search.disabled=!catalog;
+   function stop(){epoch++;if(controller)controller.abort();controller=null;clearTimeout(timer);busy=false;search.disabled=!validQuery();}
    input.addEventListener('input',function(){stop();next=null;current=null;trail=[];sawMatches=false;results.replaceChildren();pager.replaceChildren();d.status.textContent='';});
    input.addEventListener('keydown',function(event){if(event.key==='Enter'){event.preventDefault();run(null,false,false);}});
    d.node.addEventListener('close',stop);
+   if(catalog){tabs=host.el('div','MessengerCatalogTabs');tabs.setAttribute('role','group');tabs.setAttribute('aria-label','Media categories');[['visual','Photos and videos'],['documents','Files'],['audio','Audio'],['links','Links']].forEach(function(pair){var tab=button(pair[1],function(){stop();category=pair[0];next=null;current=null;trail=[];sawMatches=false;results.replaceChildren();tabs.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',String(b===tab));});run(null,false,false);});tab.setAttribute('aria-pressed',String(pair[0]===category));tabs.append(tab);});d.body.append(tabs);}
    d.body.append(input,search,results,pager);
    function run(cursor,older,previous){
-    if(busy)return;var query=input.value.trim();if(Array.from(query).length<2||Array.from(query).length>128)return;
+    if(busy)return;var query=input.value.trim();if(!validQuery())return;
     busy=true;search.disabled=true;var ticket=++epoch;controller=new AbortController();timer=setTimeout(function(){controller.abort();},30000);d.status.textContent='Searching…';pager.replaceChildren();
-    var args={id:id,q:query,limit:30};if(cursor!==null)args.before=cursor;
-    host.request('search-history',{signal:controller.signal},args).then(function(page){
+    var args={id:id,q:query,limit:30},requestedCategory=category;if(catalog)args.category=requestedCategory;if(cursor!==null)args.before=cursor;
+    host.request(catalog?'media-catalog':'search-history',{signal:controller.signal},args).then(function(page){
      if(ticket!==epoch||!d.node.isConnected)return;
+     if(catalog&&(!page||page.category!==requestedCategory))throw Error('Invalid media category.');
      if(!page||!Array.isArray(page.items)||page.items.length>30||!Number.isInteger(page.scanned)||page.scanned<page.items.length||page.scanned>500||typeof page.complete!=='boolean'||page.complete!==(page.next_before===null))throw Error('Invalid history page.');
      var last=cursor===null?Number.MAX_SAFE_INTEGER:cursor,seen=new Set();page.items.forEach(function(item){if(!Number.isSafeInteger(item.id)||item.id<=0||item.id>=last||item.conversation_id!==id||item.deleted_at||seen.has(item.id))throw Error('Invalid history result.');seen.add(item.id);last=item.id;});
      if(page.next_before!==null&&(!Number.isSafeInteger(page.next_before)||page.next_before<=0||page.scanned===0||(cursor!==null&&page.next_before>=cursor)||page.items.some(function(m){return m.id<page.next_before;})))throw Error('Invalid history cursor.');
@@ -89,9 +92,9 @@
    }
    function idlePager(){pager.replaceChildren();if(trail.length)pager.append(button('Previous results',function(){run(trail[trail.length-1],false,true);}));if(next!==null)pager.append(button('Search older messages',function(){run(next,true,false);}));}
    function cancelSearch(){stop();d.status.textContent='Search cancelled.';idlePager();}
-   input.focus();
+   if(catalog)run(null,false,false);else input.focus();
   }
-  function threadActions(chat,actions){if(host.historySearch)actions.append(button('Search chat history',function(){historySearch(chat.id);}));if(!host.pins||chat.request_state!=='accepted')return;var b=button(chat.pinned_at?'Unpin chat':'Pin chat',function(){var current=host.currentChat();if(current&&current.id===chat.id)pinWrite('pin-chat',{id:chat.id,pinned:!current.pinned_at});});b.dataset.chatPin='';actions.append(b,button('Pinned messages',function(){pinList(chat.id);}));}
+  function threadActions(chat,actions){if(host.catalog)actions.append(button('Chat media',function(){historySearch(chat.id,true);}));if(host.historySearch)actions.append(button('Search chat history',function(){historySearch(chat.id);}));if(!host.pins||chat.request_state!=='accepted')return;var b=button(chat.pinned_at?'Unpin chat':'Pin chat',function(){var current=host.currentChat();if(current&&current.id===chat.id)pinWrite('pin-chat',{id:chat.id,pinned:!current.pinned_at});});b.dataset.chatPin='';actions.append(b,button('Pinned messages',function(){pinList(chat.id);}));}
   function threadPinLabel(chat){var toggle=host.thread.querySelector('[data-chat-pin]');if(toggle)toggle.textContent=chat.pinned_at?'Unpin chat':'Pin chat';}
   function threadPins(chat){
    if(!host.pins||chat.request_state!=='accepted')return;

@@ -12,6 +12,15 @@ Use Messenger when a ProcessWire site needs direct one-to-one conversations with
 
 If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
+## Conversation media catalog candidate
+
+Messenger 1.6.0 adds a paginated catalog of an authorized conversation's photos,
+videos, documents, audio and HTTP(S) links. It searches message text and encrypted
+attachment filenames through bounded history scans, with the same member/join,
+hiding, expiry and moderation checks as the conversation. Browser and native
+clients can open the original message without replacing the unsent composer.
+See [API.md](API.md); no schema or production deployment is implied.
+
 ## Saved messages candidate
 
 Messenger 1.5.9 adds an optional private Saved messages conversation per member.

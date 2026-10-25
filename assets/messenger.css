@@ -90,3 +90,5 @@
 
 .MessengerApp-header { flex-wrap:wrap; }
 .MessengerHeaderActions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.5rem; }
+
+.MessengerCatalogTabs{display:flex;flex-wrap:wrap;gap:.4rem}.MessengerCatalogTabs button[aria-pressed="true"]{font-weight:700;background:var(--messenger-primary-soft);color:var(--messenger-primary-text)}

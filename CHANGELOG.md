@@ -4,6 +4,11 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.0] — development candidate, not installed
+
+- Add a paginated per-conversation media catalog for visual media, documents, audio and HTTP(S) links. Scan only authorized visible history with bounded work and exclusive cursors, preserving group join floors, personal hiding, expiry and Saved ownership. No plaintext index, schema change or rollout.
+
+
 ### [1.5.9] — development candidate, not installed
 
 - Add opt-in private Saved messages with one owner/participant, idempotent explicit opening, existing encrypted text/files and account synchronization. Opening preserves hidden history; normal deletion and retention policies remain authoritative.
