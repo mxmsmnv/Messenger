@@ -92,3 +92,7 @@
 .MessengerHeaderActions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.5rem; }
 
 .MessengerCatalogTabs{display:flex;flex-wrap:wrap;gap:.4rem}.MessengerCatalogTabs button[aria-pressed="true"]{font-weight:700;background:var(--messenger-primary-soft);color:var(--messenger-primary-text)}
+
+.MessengerActivityName{min-width:0}.MessengerActivityLine{display:block;min-height:1.25em;color:var(--messenger-muted);font-size:.85em}.MessengerActivityPreference{display:flex;align-items:center;gap:.5rem;font-size:.85em}
+.MessengerActivityName{flex:1;overflow-wrap:anywhere}.MessengerActivityLine{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:48rem){.MessengerApp-header{flex-wrap:wrap}.MessengerActivityPreference{flex-basis:100%}}

@@ -6,10 +6,10 @@ class ProcessMessenger extends Process {
 		return [
 			'title' => 'Messenger',
 			'summary' => 'Moderate reports, manage Messenger safety, and deliver administrative broadcasts.',
-			'version' => 160,
+			'version' => 161,
 			'author' => 'Maxim Semenov',
 			'icon' => 'comments',
-			'requires' => ['Messenger>=1.6.0'],
+			'requires' => ['Messenger>=1.6.1'],
 			'permissionMethod' => 'hasProcessPermission',
 			'page' => ['name' => 'messenger', 'parent' => 'setup', 'title' => 'Messenger'],
 		];

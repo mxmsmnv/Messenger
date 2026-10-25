@@ -11,7 +11,7 @@
 	var threadNode = root.querySelector('[data-thread]');
 	var statusNode = root.querySelector('[data-messenger-status]');
 	var requestScopeButton = root.querySelector('[data-scope="requests"]');
-	var groups = null,media = null,tools=null;
+	var groups = null,media = null,tools=null,activity=null;
 	var session = null, scope = 'inbox', active = null, newestId = 0, threadTimer = null, inboxTimer = null;
 
 	function endpoint(resource, query) {
@@ -109,7 +109,7 @@
 
 		var actions = el('div','MessengerThread-actions',undefined,'actions'); actions.append(button(active.archived_at ? 'Restore' : 'Archive','archive'), button(active.muted_until ? 'Unmute' : 'Mute','mute')); if(active.type==='group' && groups) {var groupButton=button('Group info','group-settings');groupButton.addEventListener('click',function(){groups.settings(active.id);});actions.append(groupButton);}else if(active.type!=='saved'&&active.blocked_by_actor) actions.append(button('Unblock','unblock','MessengerDanger','button_danger')); else if(active.type!=='group'&&active.type!=='saved' && !active.blocked_by_other) actions.append(button('Block','block','MessengerDanger','button_danger')); if(tools)tools.threadActions(active,actions);header.append(identity,actions);
 		var messages = el('div','MessengerMessages',undefined,'message_list'); messages.dataset.messages = '';
-		threadNode.append(header);if(media)media.groupPhoto(identity.querySelector('.MessengerAvatar'),active);
+		threadNode.append(header);if(activity)activity.bind(active);if(media)media.groupPhoto(identity.querySelector('.MessengerAvatar'),active);
 		if (active.request_state === 'pending' && active.recipient_id === session.user_id) {
 			var requestBar = el('section','MessengerRequest',undefined,'request');
 			var requestActions = el('div','MessengerRequest-actions',undefined,'actions');
@@ -154,7 +154,7 @@
 
 	function submitMessage(form) {
         if(!active)return;
-        var id=active.id,area=form.querySelector('textarea'),body=area.value.trim();if(!body||!validMessage(area)){area.reportValidity();return;}
+        var id=active.id,area=form.querySelector('textarea'),body=area.value.trim();if(!body||!validMessage(area)){area.reportValidity();return;}if(activity)activity.stopTyping(id);
         var pending=pendingWrites[id];if(pending&&pending.inFlight)return;
         if(pending&&pending.body!==body){area.value=pending.body;threadDrafts[id]=pending.body;say('Retry the unconfirmed message first.',true);return;}
         if(!pending)pending=pendingWrites[id]={body:body,clientId:clientId()};
@@ -183,7 +183,7 @@
 		var scopeButton=event.target.closest('[data-scope]'); if(scopeButton){searchActive=false;searchEpoch++;root.querySelector('[data-message-search] input').value='';scope=scopeButton.dataset.scope;root.querySelectorAll('[data-scope]').forEach(function(node){node.toggleAttribute('aria-current',node===scopeButton);});loadInbox();return;}
 		if(event.target.closest('[data-messenger-new]')){newMessageDialog();return;}
 		var actionNode=event.target.closest('[data-action]');if(!actionNode)return;var action=actionNode.dataset.action;
-		if(action==='back'){rememberDraft();threadEpoch++;delete root.dataset.threadOpen;active=null;clearInterval(threadTimer);return;}
+		if(action==='back'){rememberDraft();threadEpoch++;delete root.dataset.threadOpen;active=null;if(activity)activity.bind(null);clearInterval(threadTimer);return;}
 		if(action==='open'){openConversation(Number(actionNode.dataset.id));return;} if(!active)return;var actionId=active.id,actionEpoch=threadEpoch;function actionStillActive(){return active&&active.id===actionId&&threadEpoch===actionEpoch;}function refreshActionThread(){if(actionStillActive())openConversation(actionId);}function closeActionThread(){if(actionStillActive()){rememberDraft();threadEpoch++;active=null;clearInterval(threadTimer);delete root.dataset.threadOpen;empty(threadNode);}loadInbox();}
 		if(action==='accept')postAction('accept',{id:active.id},'Request accepted.').then(refreshActionThread);
 		if(action==='decline'&&window.confirm('Decline this message request?'))postAction('decline',{id:active.id},'Request declined.').then(closeActionThread);
@@ -214,7 +214,7 @@
             var contentChanged=chat.message_revision!==active.message_revision;
             var changed=chat.request_state!==active.request_state||chat.blocked!==active.blocked||chat.can_send!==active.can_send||JSON.stringify(chat.client_policy)!==JSON.stringify(active.client_policy);
             if(changed){rememberDraft();var messages=threadNode.querySelector('[data-messages]');active=chat;renderThreadShell();if(messages)threadNode.querySelector('[data-messages]').replaceWith(messages);scheduleThread();}
-            else active=chat;
+            else {active=chat;if(activity)activity.bind(active);}
             if(tools){tools.threadPinLabel(active);if(contentChanged&&!changed)tools.threadPins(active);}
             if(historyWindow)return;
             return loadMessages(!changed&&!contentChanged,contentChanged&&!changed);
@@ -237,5 +237,5 @@
     function scheduleThread(){clearInterval(threadTimer);threadTimer=setInterval(function(){if(!document.hidden&&active)refreshThread().catch(function(){});},Math.max(3,Number(root.dataset.threadPoll)||4)*1000);}
     function scheduleInbox(){clearInterval(inboxTimer);inboxTimer=setInterval(function(){if(!document.hidden)loadInbox(true);},Math.max(10,Number(root.dataset.inboxPoll)||20)*1000);}
     scheduleInbox();
-	request('session').then(function(result){session=result;if(!session.can_use)throw new Error('Messenger is unavailable.');if((session.media_catalog_supported||session.saved_messages_supported||session.history_search_supported||session.forwarding_supported||session.reactions_supported||session.pins_supported)&&window.ProcessWireMessengerTools)tools=window.ProcessWireMessengerTools({root:root,thread:threadNode,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},groups:session.groups_supported,reactions:session.reactions_supported,pins:session.pins_supported,historySearch:session.history_search_supported,catalog:session.media_catalog_supported,formatDate:formatDate,saved:session.saved_messages_supported,openConversation:openConversation,currentChat:function(){return active;},canPin:function(id){return active&&active.id===id&&active.request_state==='accepted';},jumpPinned:jumpPinned,pinRefresh:function(id){if(active&&active.id===id)refreshThread(true).catch(function(e){say(e.message,true);});loadInbox(true);},canReact:function(id){return active&&active.id===id&&active.request_state==='accepted'&&!active.blocked&&active.can_send!==false;},refresh:function(id){if(active&&active.id===id)loadMessages(false,true);loadInbox(true);}});if(window.ProcessWireMessengerMedia)media=window.ProcessWireMessengerMedia.create({root:root,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},refresh:function(id){if(active&&active.id===id)loadMessages(false);loadInbox(true);}});if(session.groups_supported&&window.ProcessWireMessengerGroups)groups=window.ProcessWireMessengerGroups({root:root,request:request,el:el,button:button,say:say,clientId:clientId,loadInbox:loadInbox,openConversation:openConversation,closeConversation:function(){rememberDraft();threadEpoch++;active=null;root.dataset.threadOpen='false';empty(threadNode);loadInbox();}});return loadInbox();}).catch(function(error){say(error.message,true);listNode.innerHTML='<p class="MessengerState">Messenger is unavailable.</p>';});
+	request('session').then(function(result){session=result;if(!session.can_use)throw new Error('Messenger is unavailable.');if(session.activity_supported&&window.ProcessWireMessengerActivity)activity=window.ProcessWireMessengerActivity({root:root,thread:threadNode,request:request,el:el,memberId:function(){return session.user_id;}});if((session.media_catalog_supported||session.saved_messages_supported||session.history_search_supported||session.forwarding_supported||session.reactions_supported||session.pins_supported)&&window.ProcessWireMessengerTools)tools=window.ProcessWireMessengerTools({root:root,thread:threadNode,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},groups:session.groups_supported,reactions:session.reactions_supported,pins:session.pins_supported,historySearch:session.history_search_supported,catalog:session.media_catalog_supported,formatDate:formatDate,saved:session.saved_messages_supported,openConversation:openConversation,currentChat:function(){return active;},canPin:function(id){return active&&active.id===id&&active.request_state==='accepted';},jumpPinned:jumpPinned,pinRefresh:function(id){if(active&&active.id===id)refreshThread(true).catch(function(e){say(e.message,true);});loadInbox(true);},canReact:function(id){return active&&active.id===id&&active.request_state==='accepted'&&!active.blocked&&active.can_send!==false;},refresh:function(id){if(active&&active.id===id)loadMessages(false,true);loadInbox(true);}});if(window.ProcessWireMessengerMedia)media=window.ProcessWireMessengerMedia.create({activityRecording:function(id,value){if(activity)activity.recording(id,value);},root:root,request:request,el:el,button:button,clientId:clientId,say:say,memberId:function(){return session.user_id;},refresh:function(id){if(active&&active.id===id)loadMessages(false);loadInbox(true);}});if(session.groups_supported&&window.ProcessWireMessengerGroups)groups=window.ProcessWireMessengerGroups({root:root,request:request,el:el,button:button,say:say,clientId:clientId,loadInbox:loadInbox,openConversation:openConversation,closeConversation:function(){rememberDraft();threadEpoch++;active=null;root.dataset.threadOpen='false';empty(threadNode);loadInbox();}});return loadInbox();}).catch(function(error){say(error.message,true);listNode.innerHTML='<p class="MessengerState">Messenger is unavailable.</p>';});
 }());

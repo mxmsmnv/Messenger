@@ -4,6 +4,11 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.1] — development candidate, not installed
+
+- Add transient typing/voice-recording metadata in encrypted expiring ProcessWire cache entries. Require accepted/current conversation access, omit Saved/pending/blocked/invisible activity, and invalidate group records on membership/version changes. No draft/audio payload, message, notification, audit event or schema change.
+
+
 ### [1.6.0] — development candidate, not installed
 
 - Add a paginated per-conversation media catalog for visual media, documents, audio and HTTP(S) links. Scan only authorized visible history with bounded work and exclusive cursors, preserving group join floors, personal hiding, expiry and Saved ownership. No plaintext index, schema change or rollout.

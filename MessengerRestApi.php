@@ -151,6 +151,14 @@ final class MessengerRestApi extends Wire {
 					$this->allow($method, ['GET']);
 					$result = $this->messenger->searchMessages($actor, (string)$this->wire()->input->get('q'), $this->queryInt('limit', 30, 50), (string)$this->wire()->input->get('include_groups')==='1');
 					break;
+                case 'activity':
+                    $this->allow($method,['GET','POST']);
+                    if($method==='GET')$result=$this->messenger->conversationActivity($actor,$this->conversationId($actor,$this->identifier()));
+                    else {
+                        $kind=$body['kind']??null;if(!is_string($kind))throw new \InvalidArgumentException('Activity kind is required.');
+                        $result=$this->messenger->publishConversationActivity($actor,$this->bodyConversationId($actor,$body),$kind);
+                    }
+                    break;
 				case 'media-catalog':
 					$this->allow($method,['GET']);
 					$category=$this->wire()->input->get('category');if(!is_string($category))throw new \InvalidArgumentException('A media category is required.');
@@ -259,6 +267,7 @@ final class MessengerRestApi extends Wire {
 		if($result['is_login'] && $result['can_use']) {
             $result['history_search_supported']=true;
             $result['media_catalog_supported']=true;
+            $result['activity_supported']=$this->messenger->activityReady();
             $result['saved_messages_supported']=$this->messenger->savedMessagesReady();
 			$result['groups_supported']=$this->messenger->groupsReady();
             $result['forwarding_supported']=$this->messenger->forwardingReady();

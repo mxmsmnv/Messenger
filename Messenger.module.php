@@ -7,6 +7,7 @@ require_once __DIR__ . '/src/MessengerReactions.php';
 require_once __DIR__ . '/src/MessengerPins.php';
 require_once __DIR__ . '/src/MessengerHistorySearch.php';
 require_once __DIR__ . '/src/MessengerMediaCatalog.php';
+require_once __DIR__ . '/src/MessengerActivity.php';
 require_once __DIR__ . '/src/MessengerSavedMessages.php';
 require_once __DIR__ . '/src/MessengerMessagePush.php';
 require_once __DIR__ . '/src/MessengerBroadcasts.php';
@@ -25,6 +26,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerPins;
 	use MessengerHistorySearch;
 	use MessengerMediaCatalog;
+	use MessengerActivity;
 	use MessengerSavedMessages;
 	use MessengerBroadcasts;
 	use MessengerCalls;
@@ -33,7 +35,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 160;
+	public const VERSION = 161;
 	private const REACTION_EMOJI=['👍','❤️','😂','😮','😢','🙏'];
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
@@ -58,7 +60,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 160,
+			'version' => 161,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -836,6 +838,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger-media.js?v=' . self::VERSION);
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger-groups.js?v=' . self::VERSION);
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger-tools.js?v=' . self::VERSION);
+		$config->scripts->add($config->urls->Messenger . 'assets/messenger-activity.js?v=' . self::VERSION);
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger.js?v=' . self::VERSION);
 		$endpoint = (string)($options['api'] ?? '/messenger-api/' . self::REST_API_VERSION . '/');
 		return '<section' . $this->frontendAttributes('app', [
@@ -888,7 +891,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=160) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=161) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 

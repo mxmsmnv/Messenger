@@ -64,7 +64,7 @@
         async function record(chat){
             if(recording)return;if(!window.MediaRecorder||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){host.say('Voice recording is unavailable in this browser. Choose an audio file instead.',true);return;}
             var d=sheet('Voice message'),stream,recorder,timer,chunks=[],size=0,cancelled=false,started=0,tooLarge=false,generation=++recordGeneration;recording={generation:generation,state:'pending'};
-            function release(){clearTimeout(timer);if(stream)stream.getTracks().forEach(function(track){track.stop();});if(recording&&recording.generation===generation)recording=null;}
+            function release(){clearTimeout(timer);if(stream)stream.getTracks().forEach(function(track){track.stop();});if(recording&&recording.generation===generation){recording=null;if(host.activityRecording)host.activityRecording(chat.id,false);}}
             d.node.addEventListener('close',function(){cancelled=true;if(recorder&&recorder.state==='recording')recorder.stop();release();});
             try{stream=await navigator.mediaDevices.getUserMedia({audio:true});if(!d.node.isConnected){release();return;}
                 var type=['audio/mp4','audio/webm;codecs=opus','audio/ogg;codecs=opus'].find(function(t){return MediaRecorder.isTypeSupported(t);});if(!type)throw new Error('Voice recording format unavailable. Choose an audio file instead.');
@@ -72,7 +72,7 @@
                 recorder.ondataavailable=function(e){if(e.data.size){size+=e.data.size;if(size>4*1024*1024){tooLarge=true;if(recorder.state==='recording')recorder.stop();}else chunks.push(e.data);}};
                 recorder.onerror=function(){cancelled=true;release();d.status.textContent='Recording failed. Please try again.';};
                 recorder.onstop=function(){var ms=Math.min(120000,Math.max(1,Date.now()-started)),mime=type.split(';')[0],file=new File(chunks,['voice',mime==='audio/mp4'?'m4a':mime==='audio/ogg'?'ogg':'webm'].join('.'),{type:mime});release();if(cancelled)return;if(tooLarge){d.status.textContent='Voice message is too large. Please record a shorter message.';return;}d.node.close();sendPreview(chat,[file],'voice',ms);};
-                var stop=action('Stop',function(){if(recorder.state==='recording'){stop.disabled=true;recorder.stop();}});d.body.append(stop,action('Cancel',function(){d.node.close();}));timer=setTimeout(function(){if(recorder.state==='recording')recorder.stop();},120000);recorder.start(250);
+                var stop=action('Stop',function(){if(recorder.state==='recording'){stop.disabled=true;recorder.stop();}});d.body.append(stop,action('Cancel',function(){d.node.close();}));timer=setTimeout(function(){if(recorder.state==='recording')recorder.stop();},120000);recorder.start(250);if(host.activityRecording)host.activityRecording(chat.id,true);
             }catch(e){release();d.status.textContent=e.message;}
         }
         function attach(form,chat){if(!chat.can_attach)return;form.append(action('Attach',function(){choose(chat);}),action('Voice message',function(){record(chat);}));}

@@ -12,6 +12,14 @@ Use Messenger when a ProcessWire site needs direct one-to-one conversations with
 
 If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
+## Transient activity candidate
+
+Messenger 1.6.1 adds encrypted, eight-second typing/voice-recording metadata for
+accepted direct/group conversations. Browser and Narzan clients provide local
+sharing controls, with invisible status, block and membership checks. It never
+sends a draft or audio as an activity indicator. The existing ProcessWire cache
+is used; no new schema or production deployment is implied. See [API.md](API.md).
+
 ## Conversation media catalog candidate
 
 Messenger 1.6.0 adds a paginated catalog of an authorized conversation's photos,

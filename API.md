@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.0 (ProcessWire module version `160`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.1 (ProcessWire module version `161`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -491,3 +491,34 @@ message-info reads; rows are retained. No production activation is included.
 The response contains category, newest-first items, scanned (at most500), complete and next_before. An empty intermediate page is not the end: continue its exclusive cursor. Limits are1–50; no more than500 rows are scanned per request. Visual includes image/video MIME; audio includes voice/audio MIME; documents are other attachments; links contain HTTP(S) text only. Link detection makes no external request. Attachments still require their normal authenticated download, and returning to an original must revalidate its visibility. No new plaintext index, schema, global media count or legacy inbox behavior.
 
 The optional catalog `q` is empty or2–128 Unicode characters and matches visible message text or attachment filenames case-insensitively. Non-string HTTP queries fail validation.
+
+## Transient conversation activity (1.6.1)
+
+`activityReady(): bool` requires the existing ProcessWire cache service.
+`publishConversationActivity(User $actor, int $conversationId, string $kind): array`
+accepts `typing`, `recording` or `none`. The authenticated actor is authoritative;
+the payload contains no message, audio or user-selected sender. The result is
+`{updated:true}`. Identical writes within two seconds do not renew the record.
+`conversationActivity(User $actor, int $conversationId): array` returns at most20
+other current members with user_id/name/title/kind/expires_in (1–8 seconds).
+
+Authenticated GET `activity?id=…` and POST `activity` `{id,kind}` use the normal
+member transport and browser CSRF. Discovery adds `activity` only when available;
+session metadata adds `activity_supported`. Only active accepted conversations
+participate. Saved, pending, blocked and read-only conversations produce no feed;
+unauthorized conversations fail. Invisible/offline presence suppresses activity.
+Group membership and version fingerprints invalidate prejoin and removed-member
+records. No schema, email, push, message or audit event is created.
+
+Cache names are keyed hashes, values are authenticated encrypted envelopes with
+an eight-second logical expiry. Expired ciphertext may remain until normal
+ProcessWire cache maintenance; expiry is checked on every read. No plaintext
+index or draft/audio storage is introduced. Stop is best effort; expiry handles
+a disconnected client. Clients must bound received lifetimes, cancel stale reads
+and never invent a last-seen timestamp from these transient indicators.
+
+The bundled web component has a per-account/browser sharing preference. The
+Narzan preference is local to the device and initially enabled. Disabling one's
+sharing does not prevent seeing other authorized members. Clients poll only an
+open foreground conversation, throttle renewals, and stop on leave/background.
+Voice recording itself is unchanged; the metadata observer never starts a mic.
