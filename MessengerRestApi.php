@@ -125,8 +125,12 @@ final class MessengerRestApi extends Wire {
 					$this->allow($method, ['GET']);
 					$scope = (string)$this->wire()->input->get('scope');if(!in_array($scope,['inbox','requests','archived'],true))$scope='inbox';
 					$before = trim((string)$this->wire()->input->get('before')) ?: null;
-					$result = $this->messenger->conversationsForUser($actor, $scope, $before, $this->queryInt('limit', 30, 100), (string)$this->wire()->input->get('include_groups')==='1');
-                    if(!$before&&(string)$this->wire()->input->get('include_pins')==='1'&&$this->messenger->pinsReady())$result['pinned_items']=$this->messenger->pinnedChats($actor,$scope,(string)$this->wire()->input->get('include_groups')==='1');
+					$result = $this->messenger->conversationsForUser($actor, $scope, $before, $this->queryInt('limit', 30, 100), (string)$this->wire()->input->get('include_groups')==='1',(string)$this->wire()->input->get('include_saved')==='1');
+                    if(!$before&&(string)$this->wire()->input->get('include_pins')==='1'&&$this->messenger->pinsReady())$result['pinned_items']=$this->messenger->pinnedChats($actor,$scope,(string)$this->wire()->input->get('include_groups')==='1',(string)$this->wire()->input->get('include_saved')==='1');
+					break;
+				case 'saved-messages':
+					$this->allow($method,['POST']);
+					$result=$this->messenger->openSavedConversation($actor);
 					break;
 				case 'conversation':
 					$this->allow($method, ['GET']);
@@ -248,6 +252,7 @@ final class MessengerRestApi extends Wire {
 		// Only the authenticated member may read their own minimal profile.
 		if($result['is_login'] && $result['can_use']) {
             $result['history_search_supported']=true;
+            $result['saved_messages_supported']=$this->messenger->savedMessagesReady();
 			$result['groups_supported']=$this->messenger->groupsReady();
             $result['forwarding_supported']=$this->messenger->forwardingReady();
             $result['reactions_supported']=$this->messenger->reactionsReady();

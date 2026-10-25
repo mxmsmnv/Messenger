@@ -56,10 +56,10 @@ trait MessengerPins {
             return ['id'=>$id,'pinned'=>true];
         });
     }
-    public function pinnedChats(User $actor,string $scope='inbox',bool $includeGroups=false): array {
+    public function pinnedChats(User $actor,string $scope='inbox',bool $includeGroups=false,bool $includeSaved=false): array {
         $this->assertActor($actor);if(!$this->pinsReady()||!in_array($scope,['inbox','archived'],true))return [];
         $items=[];foreach($this->personalChatPins($actor)as$id=>$at){
-            $c=$this->conversation($id,$actor);if(!$c||$c['state']!=='active'||$c['request_state']!=='accepted'||(!$includeGroups&&($c['type']??'direct')==='group'))continue;
+            $c=$this->conversation($id,$actor);if(!$c||$c['state']!=='active'||$c['request_state']!=='accepted'||(!$includeGroups&&($c['type']??'direct')==='group')||(!$includeSaved&&($c['type']??'direct')==='saved'))continue;
             if(($scope==='archived')!==!empty($c['archived_at']))continue;
             if(($c['type']??'direct')!=='group'&&(int)$c['last_message_id']<=(int)($c['hidden_through_message_id']??0))continue;
             $items[]=$c;
@@ -75,7 +75,7 @@ trait MessengerPins {
         $chat=$this->conversation($id,$actor);if(!$chat||$chat['state']!=='active'||$chat['request_state']!=='accepted')throw new WirePermissionException('Conversation unavailable.');
         $q=$this->wire('database')->prepare('SELECT scope_user_id,message_id,created_at FROM messenger_message_pins WHERE conversation_id=? AND scope_user_id IN (0,?) ORDER BY id DESC LIMIT 10');$q->execute([$id,(int)$actor->id]);$items=[];
         foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$r){$message=$this->visiblePinMessage($actor,$id,(int)$r['message_id']);if($message)$items[]=['scope'=>(int)$r['scope_user_id']===0?'everyone':'personal','created_at'=>(int)$r['created_at'],'message'=>$message];}
-        return ['items'=>$items,'can_pin_shared'=>!$chat['blocked']&&$chat['can_send']&&(($chat['type']??'direct')!=='group'||in_array($chat['role'],['owner','admin'],true))];
+        return ['items'=>$items,'can_pin_shared'=>($chat['type']??'direct')!=='saved'&&!$chat['blocked']&&$chat['can_send']&&(($chat['type']??'direct')!=='group'||in_array($chat['role'],['owner','admin'],true))];
     }
     public function pinMessage(User $actor,int $conversation,int $messageId,bool $pinned,string $scope='personal'): array {
         $this->assertActor($actor);if(!$this->pinsReady())throw new WirePermissionException('Pins unavailable.');
@@ -84,7 +84,7 @@ trait MessengerPins {
             $this->pinActorLock($actor);$db=$this->wire('database');$who=$scope==='everyone'?0:(int)$actor->id;$replaced=false;
             if($pinned||$scope==='everyone'){
                 $chat=$this->pinConversationLock($conversation,$actor);
-                if($scope==='everyone'&&($chat['blocked']||!$chat['can_send']||(($chat['type']??'direct')==='group'&&!in_array($chat['role'],['owner','admin'],true))))throw new WirePermissionException('Shared pin requires conversation rights.');
+                if($scope==='everyone'&&(($chat['type']??'direct')==='saved'||$chat['blocked']||!$chat['can_send']||(($chat['type']??'direct')==='group'&&!in_array($chat['role'],['owner','admin'],true))))throw new WirePermissionException('Shared pin requires conversation rights.');
             }
             $q=$db->prepare('SELECT message_id FROM messenger_message_pins WHERE conversation_id=? AND scope_user_id=? AND message_id=?');$q->execute([$conversation,$who,$messageId]);$exists=$q->fetchColumn()!==false;
             if($pinned&&!$this->visiblePinMessage($actor,$conversation,$messageId))throw new WirePermissionException('Message unavailable.');

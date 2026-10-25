@@ -4,6 +4,11 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.5.9] — development candidate, not installed
+
+- Add opt-in private Saved messages with one owner/participant, idempotent explicit opening, existing encrypted text/files and account synchronization. Opening preserves hidden history; normal deletion and retention policies remain authoritative.
+- Preserve legacy inbox kinds through explicit Saved opt-in. Suppress peer notifications and calls, require private pin scope, and recheck owner-only access for every metadata/history/file/action path. No new schema or production activation.
+
 ### [1.5.8] — development candidate, not installed
 
 - Add paginated search of one authorized conversation's encrypted history, without the legacy global search's1,000-message cutoff. Bound each request to500scanned rows and50matches, keep exclusive cursors across empty scans and preserve normal membership/history/visibility checks.

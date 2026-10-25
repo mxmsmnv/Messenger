@@ -14,7 +14,7 @@ def check(ok, why):
 with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
-    env=dict(os.environ,MESSENGER_FIXTURE_DB='sqlite:'+folder+'/fixture.sqlite3',MESSENGER_FIXTURE_TOOLS='1')
+    env=dict(os.environ,MESSENGER_FIXTURE_DB='sqlite:'+folder+'/fixture.sqlite3',MESSENGER_FIXTURE_TOOLS='1',MESSENGER_FIXTURE_SAVED='1')
     env.pop('PHP_CLI_SERVER_WORKERS',None)
     with open(folder+'/server.log','w+') as log:
         server=subprocess.Popen(['php','-S',f'127.0.0.1:{port}',str(ROOT/'tests/support/http-router.php')],cwd=ROOT,env=env,stdout=log,stderr=log)
@@ -143,6 +143,14 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             status,text,_=request('/messenger-api/v1/search-history/?id='+str(cid)+'&q=x',token=tokens['access_token']);check(status==400,'history query minimum validated over HTTP')
             status,text,_=request('/messenger-api/v1/search-history/?id='+str(cid)+'&q=synthetic&before=-1',token=tokens['access_token']);check(status==400,'history cursor strictly positive over HTTP')
             status,text,_=request('/messenger-api/v1/search-history/?id='+str(cid)+'&q=synthetic',{},token=tokens['access_token']);check(status==405,'history search accepts read method only')
+            status,text,_=request('/messenger-api/v1/saved-messages/',{'user_id':33},token=tokens['access_token']);personal=json.loads(text)['result'];sid=personal['id'];check(status==200 and personal['type']=='saved' and personal['other_user']['id']==11,'Saved actor is bearer owner, never supplied user id')
+            status,text,_=request('/messenger-api/v1/saved-messages/',{},token=tokens['access_token']);check(json.loads(text)['result']['id']==sid,'HTTP Saved opening is idempotent')
+            status,text,_=request('/messenger-api/v1/inbox/',token=tokens['access_token']);check(sid not in [c['id'] for c in json.loads(text)['result']['items']],'legacy inbox excludes saved kind')
+            status,text,_=request('/messenger-api/v1/inbox/?include_saved=1',token=tokens['access_token']);check(sid in [c['id'] for c in json.loads(text)['result']['items']],'new client explicitly opts into saved kind')
+            status,text,_=request('/messenger-api/v1/saved-messages/',{},browser=True);check(status==403,'web Saved mutation requires CSRF')
+            status,text,_=request('/messenger-api/v1/saved-messages/',{'fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and json.loads(text)['result']['id']==sid,'browser Saved shares account history with native connection')
+            status,text,_=request('/messenger-api/v1/saved-messages/',token=tokens['access_token']);check(status==405,'Saved explicit opening requires mutation method')
+
 
             status,text,_=request('/messenger-api/v1/pin-message/',{'id':cid,'message_id':message_id,'pinned':True,'scope':'someone-else'},token=tokens['access_token']);check(status==400,'scope cannot impersonate another member')
             status,text,_=request('/messenger-api/v1/pin-message/',{'id':cid,'message_id':message_id,'pinned':False,'scope':'personal','fixture_csrf':'fixture_csrf_value'},browser=True);check(status==200 and not json.loads(text)['result']['pinned'],'valid web CSRF can clear only own personal pin')

@@ -12,6 +12,14 @@ Use Messenger when a ProcessWire site needs direct one-to-one conversations with
 
 If this module saves you time, you can support it through [GitHub Sponsors](https://github.com/sponsors/mxmsmnv).
 
+## Saved messages candidate
+
+Messenger 1.5.9 adds an optional private Saved messages conversation per member.
+It is disabled by default, uses the existing encrypted site storage, and requires
+an explicit owner action. See [API.md](API.md) for the capability, ownership and
+legacy inbox boundary. This source update does not enable or deploy the feature
+on an existing website.
+
 ## Features
 
 - Development candidate1.5.8 adds [paginated conversation-history search](API.md#paginated-conversation-history-search) in the API and web thread actions. It scans encrypted history in bounded pages without a plaintext index or the legacy global search's1,000-message cutoff; production acceptance remains separate.

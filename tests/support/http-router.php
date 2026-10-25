@@ -3,6 +3,7 @@
 if(PHP_SAPI!=='cli-server'||!in_array($_SERVER['REMOTE_ADDR']??'',['127.0.0.1','::1'],true)){http_response_code(404);exit;}
 require __DIR__.'/bootstrap.php';require dirname(__DIR__,2).'/src/MessengerMobileHttp.php';
 [$m,$db,$a]=fixture();
+if(getenv('MESSENGER_FIXTURE_SAVED')==='1')$m->set('saved_messages_enabled',1);
 if(getenv('MESSENGER_FIXTURE_TOOLS')==='1'){$operator=new class(99) extends User{public function isSuperuser(){return true;}};$m->installMessageTools($operator);$m->set('message_tools_enabled',1);}
 // Synthetic TLS only for fixture tests. Real HTTPS is a separate integration gate.
 $_SERVER['HTTPS']='on';

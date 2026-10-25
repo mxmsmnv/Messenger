@@ -6,6 +6,7 @@ require_once __DIR__ . '/src/MessengerMessageTools.php';
 require_once __DIR__ . '/src/MessengerReactions.php';
 require_once __DIR__ . '/src/MessengerPins.php';
 require_once __DIR__ . '/src/MessengerHistorySearch.php';
+require_once __DIR__ . '/src/MessengerSavedMessages.php';
 require_once __DIR__ . '/src/MessengerMessagePush.php';
 require_once __DIR__ . '/src/MessengerBroadcasts.php';
 require_once __DIR__ . '/src/MessengerMobileAuth.php';
@@ -22,6 +23,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerReactions;
 	use MessengerPins;
 	use MessengerHistorySearch;
+	use MessengerSavedMessages;
 	use MessengerBroadcasts;
 	use MessengerCalls;
 	use MessengerMessagePush;
@@ -29,7 +31,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 158;
+	public const VERSION = 159;
 	private const REACTION_EMOJI=['👍','❤️','😂','😮','😢','🙏'];
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
@@ -54,7 +56,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 158,
+			'version' => 159,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -74,6 +76,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			'first_contact_mode' => 'requests',
 			'groups_enabled' => 0,
 			'message_tools_enabled' => 0,
+			'saved_messages_enabled' => 0,
 			'max_message_length' => 5000,
 			'max_messages_minute' => 20,
 			'max_new_recipients_day' => 20,
@@ -160,6 +163,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$contactMode = $add($experience, 'InputfieldSelect', 'first_contact_mode', $this->_('First contact policy'), $this->_('Message Requests protects members from unsolicited conversations. A site may override this through Messenger::messagingDecision.'), 50);
 		$add($experience, 'InputfieldCheckbox', 'groups_enabled', $this->_('Enable group conversations'), $this->_('Requires the explicit installGroups migration. Invitations require acceptance; new members cannot read earlier history.'), 100);
 		$add($experience, 'InputfieldCheckbox', 'message_tools_enabled', $this->_('Enable message tools'), $this->_('Requires the explicit installMessageTools migration. Forwarded attachments become independently authorized copies; reactions remain participant-scoped.'), 100);
+		$add($experience, 'InputfieldCheckbox', 'saved_messages_enabled', $this->_('Enable Saved messages'), $this->_('Each member may explicitly open a private personal conversation for notes and files. No peer notifications or new schema are required.'), 100);
 		$contactMode->addOptions([
 			'requests' => $this->_('Message Requests'),
 			'open' => $this->_('Open messaging'),
@@ -463,7 +467,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			if(!$conversation || (string)$conversation['state'] !== 'active') throw new WirePermissionException('Conversation unavailable.');
 			$otherId = $this->otherParticipantId($conversationId, (int)$actor->id);
 			$other = $this->wire('users')->get($otherId);
-			if(($conversation['type']??'direct')==='group'){if(!$this->groupCanSend($conversationId,$actor))throw new WirePermissionException('Group messaging unavailable.');}else $this->assertRecipient($actor, $other);
+			if(($conversation['type']??'direct')==='group'){if(!$this->groupCanSend($conversationId,$actor))throw new WirePermissionException('Group messaging unavailable.');}elseif(($conversation['type']??'direct')==='saved'){if(!$this->savedOwnerAllowed($conversation,$actor))throw new WirePermissionException('Saved messages unavailable.');}else $this->assertRecipient($actor, $other);
 			if((string)$conversation['request_state'] === 'declined') throw new WirePermissionException('This request was declined.');
 			if($attachment!==null&&(string)$conversation['request_state']!=='accepted')throw new WirePermissionException('Accept the request before sharing files.');
 			$existing = $this->messageByClientId((int)$actor->id, $clientId);
@@ -478,7 +482,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			$message = $this->insertMessage($conversationId, $actor, $body, $clientId, $now, $this->attachmentRequestBody($body,$attachment));
 			if($attachment!==null)$message['attachment']=$this->storeAttachment((int)$message['id'],$attachment);
 			$mediaGroup=$this->messageMediaGroup($message,$clientId);if($mediaGroup!==null)$message['media_group_id']=$mediaGroup;
-			if(($conversation['type']??'direct')!=='group')$this->queueEmailNotification($conversationId, (int)$message['id'], $otherId, $now);
+			if(($conversation['type']??'direct')==='direct')$this->queueEmailNotification($conversationId, (int)$message['id'], $otherId, $now);
 			$this->audit('message_sent', $conversationId, (int)$message['id'], (int)$actor->id);
 			if($owned)$db->commit();
 			return $message;
@@ -493,14 +497,16 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		}
 	}
 
-	public function conversationsForUser(User $actor, string $scope = 'inbox', ?string $before = null, int $limit = 30, bool $includeGroups = false): array {
+	public function conversationsForUser(User $actor, string $scope = 'inbox', ?string $before = null, int $limit = 30, bool $includeGroups = false, bool $includeSaved = false): array {
 		$this->assertActor($actor);
 		$scope = in_array($scope, ['inbox', 'requests', 'archived'], true) ? $scope : 'inbox';
 		$limit = max(1, min(100, $limit));
-		$where = ['p.user_id=?', 'c.state=\'active\'', '(c.last_message_id>p.hidden_through_message_id OR c.type=\'group\')'];
+		$where = ['p.user_id=?', 'c.state=\'active\'', '(c.last_message_id>p.hidden_through_message_id OR c.type IN (\'group\',\'saved\'))'];
 		$params = [(int)$actor->id];
-		if(!$includeGroups || !$this->groupsReady()) $where[]="c.type='direct'";
-		else $where[]="(c.type='direct' OR (c.type='group' AND EXISTS (SELECT 1 FROM messenger_group_members gm WHERE gm.conversation_id=c.id AND gm.user_id=p.user_id AND gm.active=1)))";
+		$kinds=["c.type='direct'"];
+		if($includeGroups&&$this->groupsReady())$kinds[]="(c.type='group' AND EXISTS (SELECT 1 FROM messenger_group_members gm WHERE gm.conversation_id=c.id AND gm.user_id=p.user_id AND gm.active=1))";
+		if($includeSaved&&$this->savedMessagesReady())$kinds[]="(c.type='saved' AND c.requester_id=p.user_id AND c.recipient_id=p.user_id)";
+		$where[]='('.implode(' OR ',$kinds).')';
 		if($scope === 'requests') { $where[] = 'c.request_state=\'pending\''; $where[] = 'c.recipient_id=?'; $params[] = (int)$actor->id; $where[] = 'p.archived_at IS NULL'; }
 		elseif($scope === 'archived') $where[] = 'p.archived_at IS NOT NULL';
 		else { $where[] = 'p.archived_at IS NULL'; $where[] = '(c.request_state=\'accepted\' OR c.requester_id=?)'; $params[] = (int)$actor->id; }
@@ -558,6 +564,9 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		// assertActor()/conversation() perform expiry housekeeping: deliberately use the
 		// same eligibility policy directly so this optional GET remains side-effect free.
 		if($messageId < 1 || !$this->canUse($actor)) $unavailable();
+        if($this->scalar("SELECT COUNT(*) FROM messenger_messages m JOIN messenger_conversations c ON c.id=m.conversation_id WHERE m.id=? AND c.type='saved'",[$messageId])){
+            $q=$this->wire('database')->prepare('SELECT c.* FROM messenger_conversations c JOIN messenger_messages m ON m.conversation_id=c.id WHERE m.id=?');$q->execute([$messageId]);$saved=$q->fetch(\PDO::FETCH_ASSOC);if(!$saved||!$this->savedOwnerAllowed($saved,$actor))$unavailable();
+        }
 		if($this->scalar("SELECT COUNT(*) FROM messenger_messages m JOIN messenger_conversations c ON c.id=m.conversation_id WHERE m.id=? AND c.type='group'",[$messageId]))return $this->groupMessageInfo($messageId,$actor);
 		$stmt=$this->wire('database')->prepare('SELECT m.id,m.conversation_id,m.sender_user_id,m.created_at,c.requester_id,c.recipient_id,p.last_read_message_id,peer.last_read_message_id AS peer_last_read_message_id
 			FROM `' . self::TABLE_MESSAGES . '` m
@@ -877,7 +886,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=158) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=159) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 
@@ -903,6 +912,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 
 	private function decorateConversation(array $row, User $actor): array {
 		if(($row['type']??'direct')==='group')return $this->decorateGroup($row,$actor);
+		if(($row['type']??'direct')==='saved')return $this->decorateSavedConversation($row,$actor);
 		$otherId=(int)$row['requester_id']===(int)$actor->id?(int)$row['recipient_id']:(int)$row['requester_id']; $other=$this->wire('users')->get($otherId);
 		$row['id']=(int)$row['id']; $row['requester_id']=(int)$row['requester_id']; $row['recipient_id']=(int)$row['recipient_id']; $row['last_message_id']=(int)$row['last_message_id']; $row['last_read_message_id']=(int)($row['last_read_message_id']??0); $row['unread_count']=(int)($row['unread_count']??0);
 		$row['auto_delete_seconds']=(int)($row['auto_delete_seconds']??0);$row['auto_delete_at']=isset($row['auto_delete_at'])?(int)$row['auto_delete_at']:null;$row['muted_until_epoch']=$row['muted_until']?strtotime((string)$row['muted_until']):null;$row['muted']=$row['muted_until_epoch']!==null&&$row['muted_until_epoch']>time();
@@ -1015,7 +1025,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	private function isBlockedEitherWay(int $a,int $b): bool { return $this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_BLOCKS . '` WHERE (blocker_user_id=? AND blocked_user_id=?) OR (blocker_user_id=? AND blocked_user_id=?)',[$a,$b,$b,$a])>0; }
 	private function messageByClientId(int $userId,string $clientId): array { $stmt=$this->wire('database')->prepare('SELECT id,conversation_id,sender_user_id,client_id,body,request_hash,moderation_state,created_at,edited_at,deleted_at,expires_at FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND client_id=? LIMIT 1');$stmt->execute([$userId,$clientId]);$message=$stmt->fetch(\PDO::FETCH_ASSOC)?:[];if($message){$message=$this->applyExpiry($message);$message['body']=$message['deleted_at']?'':$this->decryptMessageRow($message);unset($message['client_id']);}return $message; }
 	private function assertMessageRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_MESSAGES . '` WHERE sender_user_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-60)]); if($count>=max(1,(int)$this->max_messages_minute)) throw new MessengerMobileException('rate_limited','Please wait before sending more messages.',429); }
-	private function assertNewRecipientRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_CONVERSATIONS . '` WHERE requester_id=? AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-86400)]); if($count>=max(1,(int)$this->max_new_recipients_day)) throw new MessengerMobileException('rate_limited','Daily new conversation limit reached.',429); }
+	private function assertNewRecipientRate(int $userId): void { $count=$this->scalar('SELECT COUNT(*) FROM `' . self::TABLE_CONVERSATIONS . '` WHERE requester_id=? AND type<>\'saved\' AND created_at>=?',[$userId,date('Y-m-d H:i:s',time()-86400)]); if($count>=max(1,(int)$this->max_new_recipients_day)) throw new MessengerMobileException('rate_limited','Daily new conversation limit reached.',429); }
 	private function now(): string { return date('Y-m-d H:i:s'); }
 	private function scalar(string $sql,array $params=[]): int { $stmt=$this->wire('database')->prepare($sql);$stmt->execute($params);return (int)$stmt->fetchColumn(); }
 	private function execute(string $sql,array $params=[]): void { $stmt=$this->wire('database')->prepare($sql);$stmt->execute($params); }

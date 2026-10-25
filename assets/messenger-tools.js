@@ -41,6 +41,23 @@
     if(pin.scope==='personal'||result.can_pin_shared)row.append(button('Unpin',function(){pinWrite('pin-message',{id:id,message_id:pin.message.id,scope:pin.scope,pinned:false},d,function(){d.node.close();pinList(id);});}));d.body.append(row);
    });
   });}
+  function openSaved(){
+   var d=pinDialog('Saved messages'),busy=false,controller=null,timer=null,retry=null;
+   d.body.append(host.el('p','','Personal notes, links and files on your website.'));
+   d.node.addEventListener('close',function(){if(controller)controller.abort();clearTimeout(timer);});
+   function load(){
+    if(busy)return;busy=true;if(retry)retry.remove();d.status.textContent='Loading…';controller=new AbortController();timer=setTimeout(function(){controller.abort();},30000);
+    host.request('saved-messages',{method:'POST',body:{},signal:controller.signal}).then(function(chat){
+     if(!d.node.isConnected)return;
+     if(!chat||chat.type!=='saved'||!Number.isSafeInteger(chat.id)||chat.id<=0||chat.requester_id!==host.memberId()||chat.recipient_id!==host.memberId()||!chat.other_user||chat.other_user.id!==host.memberId())throw Error('Saved messages unavailable.');
+     d.node.close();host.openConversation(chat.id);host.pinRefresh(chat.id);
+    }).catch(function(e){if(d.node.isConnected){d.status.textContent=e.name==='AbortError'?'Could not open Saved messages. Try again.':e.message;retry=button('Retry',load);d.body.append(retry);}}).finally(function(){busy=false;clearTimeout(timer);});
+   }
+   load();
+  }
+  if(host.saved){
+   var existing=host.root.querySelector('[data-messenger-new]');if(existing){var actions=host.el('div','MessengerHeaderActions');existing.before(actions);actions.append(existing,button('Saved messages',openSaved));}
+  }
   function historySearch(id){
    var d=pinDialog('Search entire chat history'),input=host.el('input'),results=host.el('div','MessengerHistoryResults'),pager=host.el('div','MessengerGroupActions');
    input.type='search';input.maxLength=256;input.placeholder='Search this chat';input.setAttribute('aria-label','Search this chat');
@@ -140,7 +157,7 @@
     function rows(){results.replaceChildren();loaded.filter(function(c){return (c.other_user.title||c.other_user.name).toLowerCase().includes(query.value.toLowerCase());}).forEach(function(c){var b=button(c.other_user.title||c.other_user.name,function(){if(inFlight)return;var confirm=host.el('div','MessengerForwardConfirm');confirm.append(host.el('strong','',c.other_user.title||c.other_user.name),host.el('p','',snapshot.length+' messages'),button('Send',function(){send(c);}),button('Cancel',function(){confirm.remove();}));results.replaceChildren(confirm);});results.append(b);});if(cursor)results.append(button('Load more chats',function(){load(true);}));if(!loaded.length)results.append(host.el('p','','No eligible chats.'));}
     query.addEventListener('input',rows);rows();
    }
-   function load(more){var epoch=++generation,before=more?cursor:null;status.textContent='Loading chats…';host.request('inbox',{}, {scope:folder,limit:30,include_groups:host.groups?'1':'0',before:before||''}).then(function(page){if(!d.isConnected||epoch!==generation)return;loaded=(more?loaded:[]).concat(page.items.filter(function(c){return c.state==='active'&&c.request_state==='accepted'&&!c.blocked&&c.can_send===true;}));loaded=loaded.filter(function(c,i,a){return a.findIndex(function(x){return x.id===c.id;})===i;});cursor=page.next_cursor&&page.next_cursor!==before?page.next_cursor:null;status.textContent='';render();}).catch(function(e){error(e);if(d.isConnected)body.append(button('Retry',function(){load(more);}));});}
+   function load(more){var epoch=++generation,before=more?cursor:null;status.textContent='Loading chats…';host.request('inbox',{}, {scope:folder,limit:30,include_groups:host.groups?'1':'0',include_saved:host.saved?'1':'0',before:before||''}).then(function(page){if(!d.isConnected||epoch!==generation)return;loaded=(more?loaded:[]).concat(page.items.filter(function(c){return c.state==='active'&&c.request_state==='accepted'&&!c.blocked&&c.can_send===true;}));loaded=loaded.filter(function(c,i,a){return a.findIndex(function(x){return x.id===c.id;})===i;});cursor=page.next_cursor&&page.next_cursor!==before?page.next_cursor:null;status.textContent='';render();}).catch(function(e){error(e);if(d.isConnected)body.append(button('Retry',function(){load(more);}));});}
    render();if(!pending)load(false);
   }
   return{attach:attach,reset:reset,redraw:redraw,threadActions:threadActions,threadPins:threadPins,threadPinLabel:threadPinLabel};

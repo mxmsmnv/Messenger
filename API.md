@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.8 (ProcessWire module version `158`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.9 (ProcessWire module version `159`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -458,3 +458,28 @@ The discovery feature is `history_search`; authenticated session metadata adds
 `history_search_supported=true`. The bundled web client exposes Search chat history
 in thread actions, with cancellation and bounded result pages. Existing global `search` remains
 unchanged for legacy clients. No schema, worker or production migration is added.
+
+
+## Private Saved messages
+
+The operator setting `saved_messages_enabled` is off by default. With it enabled,
+`openSavedConversation(User $actor): array` or authenticated
+`POST /messenger-api/v1/saved-messages/` explicitly creates/opens the actor's one
+private conversation (`type=saved`, one participant, owner as requester/recipient).
+Repeated opens are idempotent and never reset hidden-history cutoffs. This uses
+existing encrypted messages/attachments and requires no new schema. Browser
+writes retain CSRF; posted user IDs cannot choose another owner.
+
+Discovery advertises `saved_messages` only when enabled; session metadata adds
+`saved_messages_supported`. Inbox adds optional `include_saved=1`, and the public
+`conversationsForUser`/`pinnedChats` methods append `includeSaved=false`. Legacy
+callers retain direct/group lists. Saved content is accessible only to its owner
+under normal site authentication and policy, synchronized through that site's
+account. Existing site storage/moderation/retention rules remain applicable;
+this is not E2EE or an administrator-proof vault. Reopening after Clear preserves
+normal personal hiding across devices; permanent deletion follows site policy.
+
+No peer notifications, calls, contact/block actions or shared pin scope apply.
+Authorized file access, search, forwarding and personal pins/reactions retain
+normal access checks. Disabling the feature blocks metadata, messages, files and
+message-info reads; rows are retained. No production activation is included.

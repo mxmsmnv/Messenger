@@ -46,12 +46,18 @@ trait MessengerMemberFeatures {
 			$result[]=['id'=>(int)$member->id,'name'=>(string)$member->name,'title'=>(string)($member->get('display_name')?:$member->get('title')?:$member->name),'presence'=>$this->memberPresence((int)$member->id),'added_at'=>$this->contactAddedAt((int)$actor->id,(int)$member->id)];if(count($result)>=$limit)break;}
 		return $result;
 	}
+    private function canUseConversationMedia(array $chat,User $actor):bool {
+        if(($chat['type']??'direct')==='saved')return $this->savedOwnerAllowed($chat,$actor);
+        if(($chat['type']??'direct')==='group')return $this->groupCanSend((int)$chat['id'],$actor);
+        return $this->canReceive($this->wire('users')->get((int)$chat['other_user']['id']));
+    }
+
 	public function sendAttachment(int $conversationId,User $actor,array $input,string $clientId): array {
 		$this->assertActor($actor);
 		// Reject unavailable conversations before decoding or sniffing a large media payload.
 		// sendMessageWithAttachment repeats these checks under its transaction lock.
 		$conversation=$this->conversation($conversationId,$actor);
-		if(!$conversation||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked']||(($conversation['type']??'direct')==='group'?!$this->groupCanSend((int)$conversation['id'],$actor):!$this->canReceive($this->wire('users')->get((int)$conversation['other_user']['id']))))throw new WirePermissionException('Attachment unavailable.');
+		if(!$conversation||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked']||!$this->canUseConversationMedia($conversation,$actor))throw new WirePermissionException('Attachment unavailable.');
 		$attachment=$this->validateAttachment($input);
 		$body=isset($input['body'])&&is_string($input['body'])?trim($input['body']):'';
 		if($body==='')$body=$attachment['kind']==='voice'?'Voice message':$attachment['filename'];
@@ -91,7 +97,7 @@ trait MessengerMemberFeatures {
 	public function attachment(User $actor,int $attachmentId): array {
 		$this->assertActor($actor);$stmt=$this->wire('database')->prepare('SELECT m.id,m.conversation_id,m.deleted_at,m.moderation_state,m.expires_at FROM messenger_attachments a JOIN messenger_messages m ON m.id=a.message_id WHERE a.id=?');$stmt->execute([$attachmentId]);$message=$stmt->fetch(\PDO::FETCH_ASSOC);
 		if(!$message||($message['expires_at']!==null&&(int)$message['expires_at']<=time())||$message['deleted_at']||$message['moderation_state']!=='visible')throw new WirePermissionException('Attachment unavailable.');
-		$conversation=$this->conversation((int)$message['conversation_id'],$actor);if(!$conversation||(int)$message['id']<=(int)($conversation['hidden_through_message_id']??0)||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked']||(($conversation['type']??'direct')==='group'?!$this->groupCanSend((int)$conversation['id'],$actor):!$this->canReceive($this->wire('users')->get((int)$conversation['other_user']['id'])))||$this->scalar('SELECT COUNT(*) FROM messenger_message_hides WHERE message_id=? AND user_id=?',[(int)$message['id'],(int)$actor->id]))throw new WirePermissionException('Attachment unavailable.');
+		$conversation=$this->conversation((int)$message['conversation_id'],$actor);if(!$conversation||(int)$message['id']<=(int)($conversation['hidden_through_message_id']??0)||$conversation['state']!=='active'||$conversation['request_state']!=='accepted'||$conversation['blocked']||!$this->canUseConversationMedia($conversation,$actor)||$this->scalar('SELECT COUNT(*) FROM messenger_message_hides WHERE message_id=? AND user_id=?',[(int)$message['id'],(int)$actor->id]))throw new WirePermissionException('Attachment unavailable.');
 		return $this->messageAttachment((int)$message['id'],true)??throw new WirePermissionException('Attachment unavailable.');
 	}
 }
