@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.5.3 (ProcessWire module version `153`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.5.4 (ProcessWire module version `154`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -389,3 +389,12 @@ promise delivery in that state. OS notification/Focus settings remain controllin
 ## Opt-in group conversations
 
 Messenger1.5.3 adds the explicitly installed group core. See [group API, permissions and verification boundaries](docs/GROUPS.md). Existing inbox/search callers stay direct-only unless they request `include_groups=1`; discovery only advertises `groups` after operator activation and schema readiness. New group messages use the existing authorization/encryption/media transport; group calls and end-to-end encryption are not implied.
+
+## Native device sessions — 1.5.4
+
+Discovery feature `device_sessions` exposes `devices`, `revoke-device` and
+`revoke-other-devices` through the authenticated member API. See the
+[ownership, credential, expiry and delivery contract](docs/DEVICE_SESSIONS.md).
+No new schema is introduced; existing browser device management remains CSRF
+protected. A revoked native session must stop local audio and clear private
+session state. Already delivered plaintext/provider alerts cannot be recalled.

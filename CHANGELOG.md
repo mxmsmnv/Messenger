@@ -4,6 +4,12 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-24
 
+### [1.5.4] — development candidate, not installed
+
+- Add authenticated native device/session listing and single/other-device revocation using the existing mobile grant tables. Keep the current grant server-derived, isolate users, omit token credentials and exclude expired connections from the active list.
+- Preserve the browser device-management endpoint and its CSRF protection. No database migration, website installation or provider change is part of this source candidate.
+
+
 ### [1.5.3] — development candidate, not installed
 
 - Add explicitly installed, opt-in group conversations, encrypted group names/photos, accepted invitations, owner/admin/member permissions and transfer, leave/removal and group deletion. New and returning members see only messages sent after joining; removed members lose API/file/push access.

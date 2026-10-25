@@ -23,7 +23,7 @@ Start with a site-specific Blueprint covering member roles, first-contact journe
 
 Then:
 
-1. Confirm Messenger 1.5.3/module version 153 and its PHP/ProcessWire/sodium requirements.
+1. Confirm Messenger 1.5.4/module version 154 and its PHP/ProcessWire/sodium requirements.
 2. Map existing users, roles, permissions, routes, templates, cache layers, WireMail providers, and the authoritative relationship service.
 3. Decide whether first contact is open, a Message Request, or site-policy only. Use `Messenger::messagingDecision` for verified match/connection rules.
 4. Obtain approval before installation, route/schema/permission changes, email activation, or policy changes.

@@ -36,6 +36,16 @@ final class MessengerRestApi extends Wire {
 			$body = $method === 'POST' ? $this->jsonBody($resource) : [];
 			if($method === 'POST' && !$native) $this->validateCsrf($body);
 
+            if(in_array($resource,['devices','revoke-device','revoke-other-devices'],true)) {
+                if(!$native)throw new WirePermissionException('Native connection required.');
+                $grant=$auth->authenticatedGrant($authorization);
+                if($resource==='devices'){$this->allow($method,['GET']);$items=$auth->devices($actor,$grant,101);return $this->response(200,['items'=>array_slice($items,0,100),'has_more'=>count($items)>100]);}
+                $this->allow($method,['POST']);
+                if($resource==='revoke-other-devices')return $this->response(200,['revoked'=>$auth->revokeOtherDevices($actor,$grant),'current_revoked'=>false]);
+                $id=$body['connection_id']??null;
+                if(!is_string($id)||!preg_match('/^[a-f0-9]{32}$/D',$id))throw new \InvalidArgumentException('A connection ID is required.');
+                $auth->revokeDevice($actor,$id);return $this->response(200,['revoked'=>true,'current_revoked'=>hash_equals($grant,$id)]);
+            }
             if($resource==='message-push-device') {
                 if(!$native)throw new WirePermissionException('Native connection required.');
                 return $this->response(200,$this->messenger->messagePushDevice($actor,$auth->authenticatedGrant($authorization),$method,$body));

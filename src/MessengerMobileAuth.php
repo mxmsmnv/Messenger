@@ -58,7 +58,7 @@ final class MessengerMobileAuth {
 		return ['protocol'=>'narzan-v1','issuer'=>$origin,'site_id'=>$this->digest('site|' . $origin . '|' . $base),
 			'authorize_endpoint'=>$base . '/messenger-mobile/v1/authorize/', 'token_endpoint'=>$base . '/messenger-mobile/v1/token/',
 			'refresh_endpoint'=>$base . '/messenger-mobile/v1/refresh/', 'revoke_endpoint'=>$base . '/messenger-mobile/v1/revoke/',
-			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>$this->module->messagePushReady(), 'features'=>['client_policy','recipient_context','presence','directory','attachments','read_receipts','message_info','contact_book','retention','chat_delete','chat_mute',...($this->module->messagePushReady()?['message_push']:[]),...($this->module->groupsReady()?['groups']:[])]];
+			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>$this->module->messagePushReady(), 'features'=>['device_sessions','client_policy','recipient_context','presence','directory','attachments','read_receipts','message_info','contact_book','retention','chat_delete','chat_mute',...($this->module->messagePushReady()?['message_push']:[]),...($this->module->groupsReady()?['groups']:[])]];
 	}
 	public function authorizationRequest(array $input): array {
 		$this->origin();
@@ -148,14 +148,22 @@ final class MessengerMobileAuth {
 		$this->origin();$raw=$body['refresh_token']??'';if(!is_string($raw))$this->fail();$row=$this->token($this->hashCredential($raw),'refresh');
 		if($row)$this->revokeGrant($row['grant_id']);return ['revoked'=>true];
 	}
-	public function devices(User $actor): array {
+	public function devices(User $actor,string $currentGrant='',int $limit=100): array {
 		if(!$this->module->canUse($actor))$this->fail('access_denied',403);
-		$q=$this->db()->prepare('SELECT id,device_name,created_at FROM messenger_mobile_grants WHERE user_id=? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 100');$q->execute([(int)$actor->id]);return $q->fetchAll(\PDO::FETCH_ASSOC);
+		$q=$this->db()->prepare('SELECT g.id,g.device_name,g.created_at FROM messenger_mobile_grants g WHERE g.user_id=? AND g.revoked_at IS NULL AND EXISTS(SELECT 1 FROM messenger_mobile_tokens t WHERE t.grant_id=g.id AND t.consumed_at IS NULL AND t.expires_at>?) ORDER BY (g.id=?) DESC,g.created_at DESC,g.id LIMIT '.max(1,min(101,$limit)));$q->execute([(int)$actor->id,time(),$currentGrant]);
+        return array_map(static fn(array $row):array=>['id'=>(string)$row['id'],'device_name'=>(string)$row['device_name'],'created_at'=>(int)$row['created_at'],'current'=>$currentGrant!==''&&hash_equals($currentGrant,(string)$row['id'])],$q->fetchAll(\PDO::FETCH_ASSOC));
 	}
 	public function revokeDevice(User $actor,string $id): void {
 		if(!$this->module->canUse($actor)||!preg_match('/^[a-f0-9]{32}$/D',$id))$this->fail('access_denied',403);
 		$this->db()->prepare('UPDATE messenger_mobile_grants SET revoked_at=COALESCE(revoked_at,?) WHERE id=? AND user_id=?')->execute([time(),$id,(int)$actor->id]);
 	}
+    /** Native authority comes from the authenticated token, never a body-provided exemption. */
+    public function revokeOtherDevices(User $actor,string $currentGrant): int {
+        if(!$this->module->canUse($actor)||!preg_match('/^[a-f0-9]{32}$/D',$currentGrant))$this->fail('access_denied',403);
+        $q=$this->db()->prepare('SELECT user_id FROM messenger_mobile_grants WHERE id=? AND revoked_at IS NULL');$q->execute([$currentGrant]);
+        if((int)$q->fetchColumn()!==(int)$actor->id)$this->fail('access_denied',403);
+        $q=$this->db()->prepare('UPDATE messenger_mobile_grants SET revoked_at=? WHERE user_id=? AND id<>? AND revoked_at IS NULL');$q->execute([time(),(int)$actor->id,$currentGrant]);return $q->rowCount();
+    }
 
 	private function revokeGrant(string $id): void { $this->db()->prepare('UPDATE messenger_mobile_grants SET revoked_at=COALESCE(revoked_at,?) WHERE id=?')->execute([time(),$id]); }
 	/** Shared per-account API budget, or per-IP auth budget. Identity is keyed before storage. */
