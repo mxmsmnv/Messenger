@@ -1,0 +1,17 @@
+<?php declare(strict_types=1);namespace ProcessWire;
+require __DIR__.'/forwarding-integration.php';$before=$GLOBALS['checks'];
+$as($operator,fn()=>$m->installExperimentalCalls($operator));check($m->callEventsReady(),'real optional tables detected without enabling calls');
+$now=time();$uuid='12345678-abcd-4abc-8abc-'.substr(hash('sha256',$suffix),0,12);
+$q=$db->prepare("INSERT INTO messenger_calls(id,client_id,conversation_id,caller_id,callee_id,caller_grant,state,sequence,created_at,expires_at,caller_seen,callee_seen) VALUES(?,?,?,?,?,?,'ringing',0,?,?,?,?)");
+$q->execute([$uuid,'mysql_events_'.$suffix,$source,(int)$b->id,(int)$a->id,str_repeat('a',32),$now-60,$now-15,$now,$now]);
+$page=$as($a,fn()=>$m->conversationCallEvents($a,$source));check(count($page['items'])===1&&$page['items'][0]['incoming']===true&&$page['items'][0]['outcome']==='missed','real MySQL expired unanswered incoming call');
+check($db->query("SELECT state FROM messenger_calls WHERE id='$uuid'")->fetchColumn()==='ringing','real history read has no signaling mutation');
+check($as($b,fn()=>$m->conversationCallEvents($b,$source))['items'][0]['incoming']===false,'real peer sees its outgoing direction');
+$as($c,fn()=>denied(fn()=>$m->conversationCallEvents($c,$source)));
+$db->prepare("UPDATE messenger_calls SET state='rejected',expires_at=? WHERE id=?")->execute([$now+30,$uuid]);
+check($as($a,fn()=>$m->conversationCallEvents($a,$source))['items'][0]['outcome']==='rejected','real decline is not recast as missed');
+$db->prepare("UPDATE messenger_calls SET state='ended' WHERE id=?")->execute([$uuid]);
+$db->prepare('INSERT INTO messenger_call_signals(call_id,sequence,grant_id,client_id,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)')->execute([$uuid,1,str_repeat('b',32),'mysql_accept_'.$suffix,'accept','synthetic-no-audio',$now-30]);
+check($as($a,fn()=>$m->conversationCallEvents($a,$source))['items'][0]['outcome']==='ended','real accept metadata distinguishes answered end');
+check(!$m->experimentalCallsReady(),'real history does not activate relay/push');check(!$db->inTransaction(),'no leaked transaction');
+echo json_encode(['call_event_checks'=>$GLOBALS['checks']-$before,'database'=>'isolated MySQL clone','processwire'=>wire('config')->version,'live_site_modified'=>false],JSON_PRETTY_PRINT).PHP_EOL;

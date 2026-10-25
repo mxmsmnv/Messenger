@@ -14,6 +14,9 @@ If this module saves you time, you can support it through [GitHub Sponsors](http
 
 ## Transient activity candidate
 
+Messenger 1.6.2 adds a read-only, native-authorized recent direct-call journal from
+existing signaling rows. No schema/provider activation or audio/duration claim.
+
 Messenger 1.6.1 adds encrypted, eight-second typing/voice-recording metadata for
 accepted direct/group conversations. Browser and Narzan clients provide local
 sharing controls, with invisible status, block and membership checks. It never

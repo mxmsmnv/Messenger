@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.6.1 (ProcessWire module version `161`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.6.2 (ProcessWire module version `162`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -522,3 +522,28 @@ Narzan preference is local to the device and initially enabled. Disabling one's
 sharing does not prevent seeing other authorized members. Clients poll only an
 open foreground conversation, throttle renewals, and stop on leave/background.
 Voice recording itself is unchanged; the metadata observer never starts a mic.
+
+## Recent direct-call events (1.6.2)
+
+`callEventsReady()` checks existing optional signaling tables without setup.
+Discovery advertises `call_events` only then. `conversationCallEvents(User $actor,
+int $conversationId)` reads at most20 terminal/expired calls started in the past
+24hours, newest first. REST `GET call-events?id=<positive integer>` requires the
+authenticated native bearer connection; browser sessions and POST are denied.
+Current actor/direct accepted active conversation and exact two participants are
+validated. No calls toggle, provider configuration, device enrollment or schema
+mutation is implied. Blocked chats can retain their already-known call journal.
+
+Returns `{items:[{id,conversation_id,incoming,created_at,outcome}],window_seconds:86400}`.
+Outcomes: explicit `rejected`; accepted signaling followed by end is `ended`;
+unaccepted expiry is `missed`; early unaccepted termination is `cancelled`.
+Direction is relative to the reader. No duration, connected-audio claim, exact
+end-time, SDP/ICE, grants, tokens, names or recording leaves this route. It is
+read-only even when the cleanup worker has not yet expired a row.
+
+This is a recent call journal separate from messages, unread state and personal
+message hiding; hiding a text/chat history does not erase the separate journal.
+Existing signaling cleanup can remove the source rows; this route does not
+extend retention, offer unlimited history/backfill or replace the seven-day
+device-observed journal. Native call-back remains gated by actual opt-in,
+site availability and current chat permissions. No production/store deployment.

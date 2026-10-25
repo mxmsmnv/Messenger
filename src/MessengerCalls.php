@@ -2,6 +2,31 @@
 
 /** Opt-in experimental 1:1 audio signaling. Media never passes through PHP. */
 trait MessengerCalls {
+    /** Read-only recent call metadata. No signaling payload, provider token or audio. */
+    public function callEventsReady():bool {
+        try {
+            return $this->wire('database')->query('SELECT id FROM messenger_calls LIMIT 0')!==false
+                && $this->wire('database')->query('SELECT call_id FROM messenger_call_signals LIMIT 0')!==false;
+        } catch(\PDOException $e) { return false; }
+    }
+    public function conversationCallEvents(User $actor,int $id):array {
+        $this->assertActor($actor);
+        $chat=$this->conversation($id,$actor);
+        if(!$chat||($chat['type']??'direct')!=='direct'||($chat['state']??'')!=='active'||($chat['request_state']??'')!=='accepted')throw new WirePermissionException('Conversation unavailable.');
+        if(!$this->callEventsReady())throw new WirePermissionException('Call history unavailable.');
+        $user=(int)$actor->id;$peer=(int)$chat['requester_id']===$user?(int)$chat['recipient_id']:(int)$chat['requester_id'];$now=time();
+        // Read-only derivation also covers a ringing/active row whose worker has not
+        // expired it yet. It never changes call state or claims an audible connection.
+        $q=$this->wire('database')->prepare("SELECT c.id,c.caller_id,c.callee_id,c.state,c.created_at,c.expires_at,EXISTS(SELECT 1 FROM messenger_call_signals s WHERE s.call_id=c.id AND s.kind='accept') accepted FROM messenger_calls c WHERE c.conversation_id=? AND c.created_at>=? AND c.created_at<=? AND ((c.caller_id=? AND c.callee_id=?) OR (c.caller_id=? AND c.callee_id=?)) AND c.state IN ('ringing','active','ended','rejected') AND (c.state IN ('ended','rejected') OR c.expires_at<=? OR (c.state='active' AND (c.caller_seen<? OR c.callee_seen<?))) ORDER BY c.created_at DESC,c.id DESC LIMIT 20");
+        $q->execute([$id,$now-86400,$now,$user,$peer,$peer,$user,$now,$now-45,$now-45]);$items=[];
+        foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$row) {
+            if(!preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/D',(string)$row['id']))continue;
+            $incoming=(int)$row['callee_id']===$user;
+            $outcome=$row['state']==='rejected'?'rejected':(!empty($row['accepted'])?'ended':((int)$row['expires_at']<=$now?'missed':'cancelled'));
+            $items[]=['id'=>$row['id'],'conversation_id'=>$id,'incoming'=>$incoming,'created_at'=>(int)$row['created_at'],'outcome'=>$outcome];
+        }
+        return ['items'=>$items,'window_seconds'=>86400];
+    }
     private function callsConfig(): array { $v=$this->wire('config')->messengerCalls;return is_array($v)?$v:[]; }
     public function experimentalCallsReady(): bool {
         $c=$this->callsConfig();return !empty($c['enabled']) && strlen((string)($c['turn_secret']??''))>=32 && !empty($c['turn_urls']) && !empty($c['push_ready']);

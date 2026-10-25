@@ -50,6 +50,12 @@ final class MessengerRestApi extends Wire {
                 if(!$native)throw new WirePermissionException('Native connection required.');
                 return $this->response(200,$this->messenger->messagePushDevice($actor,$auth->authenticatedGrant($authorization),$method,$body));
             }
+            if($resource==='call-events') {
+                if(!$native)throw new WirePermissionException('Native connection required.');
+                $this->allow($method,['GET']);
+                $id=$this->nullablePositiveQueryInt('id');if($id===null)throw new \InvalidArgumentException('Conversation required.');
+                return $this->response(200,$this->messenger->conversationCallEvents($actor,$id));
+            }
             if(in_array($resource,['call-config','call-device','call-start','call-inbox','call-state','call-ice','call-signal','call-feedback'],true)) {
                 if(!$native)throw new WirePermissionException('Native connection required.');
                 $result=$this->messenger->experimentalCallRequest($actor,$auth->authenticatedGrant($authorization),$resource,$method,$body,['id'=>$this->wire()->input->get('id'),'after'=>$this->wire()->input->get('after')]);

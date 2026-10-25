@@ -103,6 +103,26 @@ with tempfile.TemporaryDirectory(prefix='messenger-http-') as folder:
             for resource in ['call-config','call-feedback']:
                 status,text,_=request('/messenger-api/v1/'+resource+'/',browser=True)
                 check(status==403,'browser session cannot invoke '+resource)
+            event_chat=started['conversation']['id']
+            with sqlite3.connect(folder+'/fixture.sqlite3') as seed:
+                event_policy=seed.execute("SELECT request_state FROM messenger_conversations WHERE id=?",(event_chat,)).fetchone()[0]
+                seed.execute("UPDATE messenger_conversations SET request_state='accepted' WHERE id=?",(event_chat,))
+                seed.execute("UPDATE messenger_calls SET conversation_id=?,callee_id=33 WHERE id=?",(event_chat,call_id))
+            status,text,event_headers=request('/messenger-api/v1/call-events/?id='+str(event_chat),token=tokens['access_token'])
+            check(status==200 and len(json.loads(text)['result']['items'])==1,'native history reads own real call row while calls are disabled')
+            check('no-store' in event_headers.get('Cache-Control',''),'call events remain private')
+            status,text,_=request('/messenger-api/v1/call-events/?id='+str(event_chat),browser=True)
+            check(status==403,'browser cannot invoke native call events')
+            status,text,_=request('/messenger-api/v1/call-events/?id='+str(event_chat),{},token=tokens['access_token'])
+            check(status==405,'call event history is read-only')
+            for invalid in ['', '0','-1','1x','99999999999999999999999999']:
+                status,text,_=request('/messenger-api/v1/call-events/?id='+invalid,token=tokens['access_token'])
+                check(status==400,'call event conversation ID parsing is strict')
+            status,text,_=request('/messenger-api/v1/call-events/?id=999999',token=tokens['access_token'])
+            check(status==403,'call events do not expose a foreign conversation')
+            with sqlite3.connect(folder+'/fixture.sqlite3') as seed:
+                seed.execute('UPDATE messenger_calls SET conversation_id=123,callee_id=22 WHERE id=?',(call_id,))
+                seed.execute('UPDATE messenger_conversations SET request_state=? WHERE id=?',(event_policy,event_chat))
             feedback={'id':call_id,'stars':4,'issues':['echo'],'consent':True}
             status,text,feedback_headers=request('/messenger-api/v1/call-feedback/',feedback,token=tokens['access_token'])
             check(status==200 and json.loads(text)['result']=={'saved':True},'native consented HTTP feedback accepted')

@@ -4,6 +4,11 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ## 2026-10-25
 
+### [1.6.2] — development candidate, not installed
+
+- Expose bounded native-only recent direct-call events from existing signaling rows, with actor/conversation checks and distinct decline/unanswered/cancelled/accepted-end metadata. Read-only, no schema or provider activation, no audio/duration or unlimited-history claim.
+
+
 ### [1.6.1] — development candidate, not installed
 
 - Add transient typing/voice-recording metadata in encrypted expiring ProcessWire cache entries. Require accepted/current conversation access, omit Saved/pending/blocked/invisible activity, and invalidate group records on membership/version changes. No draft/audio payload, message, notification, audit event or schema change.
