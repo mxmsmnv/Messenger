@@ -6,6 +6,8 @@ All notable changes to Messenger are documented by release date, with versions l
 
 ### [1.7.1] — call reliability candidate, not installed
 
+- Align the credential form with the 32–256 character coturn secret policy; do
+  not impose unrelated website-account password composition rules.
 - Add an administrator-managed pool of up to five coturn REST servers with encrypted
   secret storage. Empty pool permits direct connections; push readiness remains
   independent. Legacy private configuration and first-relay response stay supported.

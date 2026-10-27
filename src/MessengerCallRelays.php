@@ -84,7 +84,7 @@ trait MessengerCallRelays {
             foreach(['label'=>'Relay '.$slot.' name','urls'=>'Relay '.$slot.' URLs','secret'=>'Relay '.$slot.' REST shared secret']as$key=>$label){
                 $field=$modules->get($key==='secret'?'InputfieldPassword':($key==='urls'?'InputfieldTextarea':'InputfieldText'));
                 $field->name='call_relay_'.$slot.'_'.$key;$field->label=$label;$field->showIf='call_relays_apply=1';
-                if($key==='secret'){$field->attr('autocomplete','new-password');$field->description='Never displayed. Leave empty to retain the existing secret for this slot.';}
+                if($key==='secret'){$field->attr('minlength',32);$field->attr('maxlength',256);$field->requirements=['none'];$field->complexifyFactor=0;$field->newPassLabel='Shared secret';$field->confirmLabel='Confirm shared secret';$field->attr('autocomplete','new-password');$field->description='Never displayed. Leave empty to retain the existing secret for this slot.';}
                 else $field->value=$key==='urls'?implode("\n",$relay['urls']??[]):($relay['label']??'');
                 $mobile->add($field);
             }
