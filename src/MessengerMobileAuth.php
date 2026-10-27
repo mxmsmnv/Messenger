@@ -58,7 +58,7 @@ final class MessengerMobileAuth {
 		return ['protocol'=>'narzan-v1','issuer'=>$origin,'site_id'=>$this->digest('site|' . $origin . '|' . $base),
 			'authorize_endpoint'=>$base . '/messenger-mobile/v1/authorize/', 'token_endpoint'=>$base . '/messenger-mobile/v1/token/',
 			'refresh_endpoint'=>$base . '/messenger-mobile/v1/refresh/', 'revoke_endpoint'=>$base . '/messenger-mobile/v1/revoke/',
-			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>$this->module->messagePushReady(), 'messages_path'=>$this->module->groupMessagesPath(), 'features'=>['write_ack',...($this->module->accountCallsReady()?['account_calls']:[]),...($this->module->groupEventsReady()?['group_events']:[]),...($this->module->groupEventsReady()&&$this->module->messagePushReady()?['group_event_reminders']:[]),...($this->module->mentionsReady()?['group_mentions']:[]),...($this->module->groupLinksReady()?['group_links']:[]),...($this->module->pollsReady()?['group_polls']:[]),...($this->module->silentMessagesReady()?['silent_messages']:[]),...($this->module->callEventsReady()?['call_events']:[]),...($this->module->activityReady()?['activity']:[]),...($this->module->savedMessagesReady()?['saved_messages']:[]),'history_search','media_catalog','device_sessions','client_policy','recipient_context','presence','directory','attachments','read_receipts','message_info','contact_book','retention','chat_delete','chat_mute',...($this->module->messagePushReady()?['message_push','account_push']:[]),...($this->module->groupsReady()?['groups']:[]),...($this->module->forwardingReady()?['forwarding']:[]),...($this->module->reactionsReady()?['reactions']:[]),...($this->module->pinsReady()?['pins']:[])]];
+			'devices_endpoint'=>$base . '/messenger-mobile/v1/devices/', 'member_api'=>$base . '/messenger-api/v1/', 'code_challenge_methods_supported'=>['S256'], 'push_supported'=>$this->module->messagePushReady(), 'messages_path'=>$this->module->groupMessagesPath(), 'features'=>['write_ack',...($this->refreshRecoveryReady()?['refresh_recovery']:[]),...($this->module->accountCallsReady()?['account_calls']:[]),...($this->module->groupEventsReady()?['group_events']:[]),...($this->module->groupEventsReady()&&$this->module->messagePushReady()?['group_event_reminders']:[]),...($this->module->mentionsReady()?['group_mentions']:[]),...($this->module->groupLinksReady()?['group_links']:[]),...($this->module->pollsReady()?['group_polls']:[]),...($this->module->silentMessagesReady()?['silent_messages']:[]),...($this->module->callEventsReady()?['call_events']:[]),...($this->module->activityReady()?['activity']:[]),...($this->module->savedMessagesReady()?['saved_messages']:[]),'history_search','media_catalog','device_sessions','client_policy','recipient_context','presence','directory','attachments','read_receipts','message_info','contact_book','retention','chat_delete','chat_mute',...($this->module->messagePushReady()?['message_push','account_push']:[]),...($this->module->groupsReady()?['groups']:[]),...($this->module->forwardingReady()?['forwarding']:[]),...($this->module->reactionsReady()?['reactions']:[]),...($this->module->pinsReady()?['pins']:[])]];
 	}
 	public function authorizationRequest(array $input): array {
 		$this->origin();
@@ -117,16 +117,51 @@ final class MessengerMobileAuth {
 		$q=$this->db()->prepare('SELECT t.*,g.user_id,g.revoked_at FROM messenger_mobile_tokens t JOIN messenger_mobile_grants g ON g.id=t.grant_id WHERE t.digest=? AND t.kind=?' . ($lock?$this->lock():''));
 		$q->execute([$digest,$kind]); return $q->fetch(\PDO::FETCH_ASSOC) ?: [];
 	}
+    private function refreshRecoveryReady():bool {
+        try{return $this->db()->query('SELECT digest FROM messenger_mobile_receipts LIMIT 0')!==false;}catch(\PDOException $e){return false;}
+    }
+    private function receiptCipher(string $value,string $aad,bool $decrypt=false):string {
+        // Separate key/context from credentials and message envelopes. Never stored in module settings.
+        $config=$this->module->wire('config');$secret=(string)($config->get('messengerEncryptionKey')?:$config->tableSalt);
+        if($secret==='')$this->fail('configuration_unavailable',503);
+        $key=hash('sha256','Messenger|refresh-receipt|v1|'.$secret,true);
+        if(!$decrypt){$nonce=random_bytes(24);return base64_encode($nonce.sodium_crypto_aead_xchacha20poly1305_ietf_encrypt($value,$aad,$nonce,$key));}
+        $raw=base64_decode($value,true);if($raw===false||strlen($raw)<40)$this->fail();
+        $plain=sodium_crypto_aead_xchacha20poly1305_ietf_decrypt(substr($raw,24),$aad,substr($raw,0,24),$key);
+        if($plain===false)$this->fail();return $plain;
+    }
 	public function refresh(array $body): array {
-		$this->origin(); $raw=$body['refresh_token']??''; if(!is_string($raw))$this->fail(); $digest=$this->hashCredential($raw); $db=$this->db();$db->beginTransaction();
+		$this->origin(); $raw=$body['refresh_token']??''; if(!is_string($raw))$this->fail(); $digest=$this->hashCredential($raw); $db=$this->db();
+        $nonce=$body['recovery_id']??null;
+        if($nonce!==null&&(!is_string($nonce)||!preg_match('/^[A-Za-z0-9_-]{32,64}$/D',$nonce)))$this->fail('invalid_request');
+        if($nonce!==null&&!$this->refreshRecoveryReady())$this->fail('recovery_unavailable',503);
+        $db->beginTransaction();
 		try {
 			$row=$this->token($digest,'refresh',true);
 			if(!$row || $row['revoked_at']!==null || (int)$row['expires_at']<=time())$this->fail();
-			if($row['consumed_at']!==null){$this->revokeGrant($row['grant_id']);$db->commit();$this->fail('refresh_reuse');}
+			if($row['consumed_at']!==null&&$nonce!==null){
+                $q=$db->prepare('SELECT * FROM messenger_mobile_receipts WHERE digest=?');$q->execute([$digest]);$receipt=$q->fetch(\PDO::FETCH_ASSOC);
+                if($receipt&&hash_equals($receipt['nonce_digest'],$this->digest('recovery|'.$nonce))&&(int)$receipt['expires_at']>time()){
+                    $this->eligible((int)$row['user_id']);
+                    $result=json_decode($this->receiptCipher($receipt['payload'],$digest.'|'.$receipt['nonce_digest'],true),true,512,JSON_THROW_ON_ERROR);
+                    $replacement=$this->token($this->hashCredential($result['refresh_token']),'refresh',true);
+                    if(!$replacement||$replacement['consumed_at']!==null||$replacement['revoked_at']!==null)$this->fail();
+                    // Report remaining access lifetime, not a fresh ten minutes on retry.
+                    $result['expires_in']=max(1,(int)$receipt['expires_at']-time());
+                    $db->commit();return $result;
+                }
+            }
+            if($row['consumed_at']!==null){$this->revokeGrant($row['grant_id']);$db->commit();$this->fail('refresh_reuse');}
 			$this->eligible((int)$row['user_id']);
 			$q=$db->prepare('UPDATE messenger_mobile_tokens SET consumed_at=? WHERE digest=? AND consumed_at IS NULL');$q->execute([time(),$digest]);if($q->rowCount()!==1)$this->fail();
 			$db->prepare("UPDATE messenger_mobile_tokens SET consumed_at=? WHERE grant_id=? AND kind='access' AND consumed_at IS NULL")->execute([time(),$row['grant_id']]);
-			$result=$this->issue($row['grant_id']);$db->commit();return $result;
+			$result=$this->issue($row['grant_id']);
+            if($nonce!==null){
+                $nonceDigest=$this->digest('recovery|'.$nonce);
+                $db->prepare('DELETE FROM messenger_mobile_receipts WHERE expires_at<?')->execute([time()]);
+                $db->prepare('INSERT INTO messenger_mobile_receipts(digest,nonce_digest,payload,expires_at) VALUES(?,?,?,?)')->execute([$digest,$nonceDigest,$this->receiptCipher(json_encode($result,JSON_THROW_ON_ERROR),$digest.'|'.$nonceDigest),time()+self::ACCESS_TTL]);
+            }
+            $db->commit();return $result;
 		}catch(\Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
 	}
 	/** Returns authority only; caller binds/restores the current PW user without forceLogin. */
@@ -182,6 +217,7 @@ final class MessengerMobileAuth {
 			'messenger_mobile_codes'=>'digest CHAR(64) PRIMARY KEY,user_id BIGINT NOT NULL,redirect_uri VARCHAR(1000) NOT NULL,challenge CHAR(43) NOT NULL,device_name VARCHAR(80) NOT NULL,expires_at BIGINT NOT NULL,used_at BIGINT NULL',
 			'messenger_mobile_grants'=>'id CHAR(32) PRIMARY KEY,user_id BIGINT NOT NULL,device_name VARCHAR(80) NOT NULL,created_at BIGINT NOT NULL,revoked_at BIGINT NULL',
 			'messenger_mobile_tokens'=>'digest CHAR(64) PRIMARY KEY,grant_id CHAR(32) NOT NULL,kind VARCHAR(10) NOT NULL,expires_at BIGINT NOT NULL,consumed_at BIGINT NULL',
+			'messenger_mobile_receipts'=>'digest CHAR(64) PRIMARY KEY,nonce_digest CHAR(64) NOT NULL,payload TEXT NOT NULL,expires_at BIGINT NOT NULL',
 			'messenger_mobile_rates'=>'id CHAR(64) PRIMARY KEY,hits INT NOT NULL,expires_at BIGINT NOT NULL',
 		] as $table=>$columns) {
 			$mysql=$db->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql';

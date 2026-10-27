@@ -214,3 +214,21 @@ Messenger1.6.6 adds an optional [group invitation-link candidate](docs/GROUP_LIN
 authenticated preview/join, owner/admin creation and exact revocation, bounded
 lifetime/uses and current site-policy enforcement. Explicit operator migration and
 production acceptance remain required; this source update deploys nothing.
+
+## Directory role visibility — pending build14 integration
+
+In **Narzan mobile access**, select **Roles visible in the member directory**
+and/or **Roles hidden from the member directory**. An empty include list preserves
+eligible discovery; excluded roles win when a person has several roles. Superusers
+are always omitted from general discovery. The same server-side directory policy
+applies to Narzan and the website. Existing conversations and explicit contacts
+remain available under their existing authorization; this setting does not grant
+or revoke messaging permissions. No schema change is needed. These source changes
+have not been installed on a consuming website.
+
+## Call reliability candidate 1.7.1
+
+An opt-in relay pool, direct/STUN support, refresh recovery and ICE-restart signaling
+are prepared as a local candidate. Existing installations require the explicit
+operator setup in [Call reliability](docs/CALL_RELIABILITY.md); metadata upgrade alone
+does not alter schema or activate providers. Browser assets remain unchanged.

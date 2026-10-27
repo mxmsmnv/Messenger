@@ -18,7 +18,7 @@ trait MessengerCalls {
         // Read-only derivation also covers a ringing/active row whose worker has not
         // expired it yet. It never changes call state or claims an audible connection.
         $q=$this->wire('database')->prepare("SELECT c.id,c.caller_id,c.callee_id,c.state,c.created_at,c.expires_at,EXISTS(SELECT 1 FROM messenger_call_signals s WHERE s.call_id=c.id AND s.kind='accept') accepted FROM messenger_calls c WHERE c.conversation_id=? AND c.created_at>=? AND c.created_at<=? AND ((c.caller_id=? AND c.callee_id=?) OR (c.caller_id=? AND c.callee_id=?)) AND c.state IN ('ringing','active','ended','rejected') AND (c.state IN ('ended','rejected') OR c.expires_at<=? OR (c.state='active' AND (c.caller_seen<? OR c.callee_seen<?))) ORDER BY c.created_at DESC,c.id DESC LIMIT 20");
-        $q->execute([$id,$now-86400,$now,$user,$peer,$peer,$user,$now,$now-45,$now-45]);$items=[];
+        $q->execute([$id,$now-86400,$now,$user,$peer,$peer,$user,$now,$now-90,$now-90]);$items=[];
         foreach($q->fetchAll(\PDO::FETCH_ASSOC)as$row) {
             if(!preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/D',(string)$row['id']))continue;
             $incoming=(int)$row['callee_id']===$user;
@@ -29,7 +29,7 @@ trait MessengerCalls {
     }
     private function callsConfig(): array { $v=$this->wire('config')->messengerCalls;return is_array($v)?$v:[]; }
     public function experimentalCallsReady(): bool {
-        $c=$this->callsConfig();return !empty($c['enabled']) && strlen((string)($c['turn_secret']??''))>=32 && !empty($c['turn_urls']) && !empty($c['push_ready']);
+        $c=$this->callsConfig();return !empty($c['enabled']) && !empty($c['push_ready']);
     }
     /** Opaque native grants compare byte-exactly across historical MySQL collations. */
     private function callPushGrantJoin():string {
@@ -52,6 +52,7 @@ trait MessengerCalls {
     public function installExperimentalCalls(User $actor): void {
         if(!$this->canAdmin($actor))throw new WirePermissionException('Administrative access required.');
         foreach([
+            'messenger_call_relays'=>'slot INTEGER PRIMARY KEY,payload TEXT NOT NULL',
             'messenger_call_devices'=>'grant_id CHAR(32) PRIMARY KEY,user_id BIGINT NOT NULL,platform VARCHAR(12) NOT NULL,token TEXT NOT NULL,enabled INTEGER NOT NULL,updated_at BIGINT NOT NULL',
             'messenger_calls'=>'id CHAR(36) PRIMARY KEY,client_id VARCHAR(64) NOT NULL,conversation_id BIGINT NOT NULL,caller_id BIGINT NOT NULL,callee_id BIGINT NOT NULL,caller_grant CHAR(32) NOT NULL,answer_grant CHAR(32) NULL,state VARCHAR(16) NOT NULL,sequence BIGINT NOT NULL,created_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,caller_seen BIGINT NOT NULL DEFAULT 0,callee_seen BIGINT NOT NULL DEFAULT 0,UNIQUE(caller_grant,client_id)',
             'messenger_call_signals'=>'call_id CHAR(36) NOT NULL,sequence BIGINT NOT NULL,grant_id CHAR(32) NOT NULL,client_id VARCHAR(64) NOT NULL,kind VARCHAR(12) NOT NULL,payload TEXT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(call_id,sequence),UNIQUE(call_id,grant_id,client_id)',
@@ -146,7 +147,7 @@ trait MessengerCalls {
     private function expireExperimentalCalls():void {
         $mysql=$this->wire('database')->getAttribute(\PDO::ATTR_DRIVER_NAME)==='mysql';
         $caller=$mysql?'CAST(caller_grant AS BINARY)':'caller_grant';$answer=$mysql?'CAST(answer_grant AS BINARY)':'answer_grant';$id=$mysql?'CAST(id AS BINARY)':'id';
-        $this->execute("UPDATE messenger_calls SET state='ended' WHERE state IN ('ringing','active') AND (expires_at<=? OR (state='active' AND (caller_seen<? OR callee_seen<?)) OR ".$caller." NOT IN (SELECT ".$id." FROM messenger_mobile_grants WHERE revoked_at IS NULL) OR (answer_grant IS NOT NULL AND ".$answer." NOT IN (SELECT ".$id." FROM messenger_mobile_grants WHERE revoked_at IS NULL)))",[time(),time()-45,time()-45]);
+        $this->execute("UPDATE messenger_calls SET state='ended' WHERE state IN ('ringing','active') AND (expires_at<=? OR (state='active' AND (caller_seen<? OR callee_seen<?)) OR ".$caller." NOT IN (SELECT ".$id." FROM messenger_mobile_grants WHERE revoked_at IS NULL) OR (answer_grant IS NOT NULL AND ".$answer." NOT IN (SELECT ".$id." FROM messenger_mobile_grants WHERE revoked_at IS NULL)))",[time(),time()-90,time()-90]);
     }
     private function callConversation(User $actor,int $id):array {
         if($this->scalar("SELECT COUNT(*) FROM messenger_conversations WHERE id=? AND type<>'direct'",[$id]))throw new WirePermissionException('Direct conversation required.');
@@ -166,14 +167,19 @@ trait MessengerCalls {
         $q=$this->wire('database')->prepare('SELECT enabled FROM messenger_call_devices WHERE grant_id=? AND user_id=?');$q->execute([$grant,(int)$actor->id]);if((int)$q->fetchColumn()!==1)throw new WirePermissionException('Calls are disabled on this device.');
     }
     private function callPresentation(array $row):array {
-        return ['id'=>$row['id'],'conversation_id'=>(int)$row['conversation_id'],'caller_id'=>(int)$row['caller_id'],'callee_id'=>(int)$row['callee_id'],'state'=>$row['state'],'created_at'=>(int)$row['created_at'],'expires_at'=>(int)$row['expires_at']];
+        $q=$this->wire('database')->prepare("SELECT MIN(CASE WHEN kind='accept' THEN created_at END) accepted_at,MAX(CASE WHEN kind IN ('end','reject') THEN created_at END) ended_at FROM messenger_call_signals WHERE call_id=?");$q->execute([$row['id']]);$times=$q->fetch(\PDO::FETCH_ASSOC);
+        $ended=$times['ended_at']??null;
+        // Worker expiry has no explicit End signal; the common last heartbeat
+        // marks the last observed participation, rather than either device clock.
+        if($ended===null&&$row['state']==='ended')$ended=min((int)$row['caller_seen'],(int)$row['callee_seen']);
+        return ['id'=>$row['id'],'conversation_id'=>(int)$row['conversation_id'],'caller_id'=>(int)$row['caller_id'],'callee_id'=>(int)$row['callee_id'],'state'=>$row['state'],'created_at'=>(int)$row['created_at'],'accepted_at'=>isset($times['accepted_at'])?(int)$times['accepted_at']:null,'ended_at'=>$ended!==null?(int)$ended:null,'expires_at'=>(int)$row['expires_at']];
     }
     /** Native-only transport binds registrations/signals to the authenticated, revocable grant. */
     public function experimentalCallRequest(User $actor,string $grant,string $resource,string $method,array $body,array $query):array {
         $this->assertActor($actor);
         if($resource==='call-config') {
             if($method!=='GET')throw new \InvalidArgumentException('GET required.');
-            return ['enabled'=>$this->experimentalCallsReady(),'feedback_enabled'=>$this->experimentalCallFeedbackReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45,'account_binding_supported'=>$this->accountCallsReady()];
+            return ['enabled'=>$this->experimentalCallsReady(),'feedback_enabled'=>$this->experimentalCallFeedbackReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45,'account_binding_supported'=>$this->accountCallsReady(),'ice_restart_supported'=>true,'direct_connections'=>true,'relay_count'=>count($this->configuredCallRelays())];
         }
         if(!preg_match('/^[a-f0-9]{32}$/D',$grant))throw new WirePermissionException('Native connection required.');
         $db=$this->wire('database');
@@ -233,20 +239,18 @@ trait MessengerCalls {
         }
         if($resource==='call-ice') {
             if($method!=='GET'||$row['state']!=='active'||!in_array($grant,[$row['caller_grant'],$row['answer_grant']],true))throw new WirePermissionException('Call unavailable.');
-            $c=$this->callsConfig();$username=((int)$row['created_at']+7500).':'.hash('sha256',$grant.'|'.$id);$urls=$c['turn_urls'];
-            foreach($urls as $url)if(!is_string($url)||!preg_match('/^turns?:[a-zA-Z0-9.:-]+(?:\?transport=(udp|tcp))?$/D',$url))throw new \RuntimeException('Invalid TURN configuration.');
-            return ['urls'=>$urls,'username'=>$username,'credential'=>base64_encode(hash_hmac('sha1',$username,$c['turn_secret'],true)),'expires_in'=>max(0,(int)$row['created_at']+7500-time())];
+            return $this->callIcePool($row,$grant);
         }
         if($resource!=='call-signal'||$method!=='POST')throw new \InvalidArgumentException('Unknown call operation.');
         $kind=$body['kind']??'';$payload=$body['payload']??'';$client=$body['client_id']??'';
-        if(!in_array($kind,['offer','answer','ice','accept','reject','end'],true)||!is_string($payload)||strlen($payload)>65536||!is_string($client)||!preg_match('/^[A-Za-z0-9_-]{16,64}$/D',$client))throw new \InvalidArgumentException('Invalid call signal.');
+        if(!in_array($kind,['offer','answer','ice','restart','accept','reject','end'],true)||!is_string($payload)||strlen($payload)>65536||!is_string($client)||!preg_match('/^[A-Za-z0-9_-]{16,64}$/D',$client))throw new \InvalidArgumentException('Invalid call signal.');
         return $this->atomic(function()use($actor,$grant,$id,$kind,$payload,$client,$db):array{
             $lock=$db->getAttribute(\PDO::ATTR_DRIVER_NAME)==='sqlite'?'':' FOR UPDATE';$q=$db->prepare('SELECT * FROM messenger_calls WHERE id=?'.$lock);$q->execute([$id]);$row=$q->fetch(\PDO::FETCH_ASSOC);
             $q=$db->prepare('SELECT sequence,kind,payload FROM messenger_call_signals WHERE call_id=? AND grant_id=? AND client_id=?');$q->execute([$id,$grant,$client]);$old=$q->fetch(\PDO::FETCH_ASSOC);
             if($old){if($old['kind']!==$kind||!hash_equals($payload,$this->decryptValue($old['payload'],'Messenger|call-signal|'.$id.'|'.$old['sequence'])))throw new \InvalidArgumentException('Signal retry differs.');return ['sequence'=>(int)$old['sequence']];}
             if(!in_array($row['state'],['ringing','active'],true)||(int)$row['expires_at']<=time())throw new WirePermissionException('Call ended.');
             $caller=$grant===$row['caller_grant'];$callee=(int)$actor->id===(int)$row['callee_id'];
-            if(in_array($kind,['offer','answer','ice'],true)&&$row['state']!=='active')throw new WirePermissionException('Call must be accepted before media signaling.');
+            if(in_array($kind,['offer','answer','ice','restart'],true)&&$row['state']!=='active')throw new WirePermissionException('Call must be accepted before media signaling.');
             if($kind==='accept') {if(!$callee||$row['state']!=='ringing')throw new WirePermissionException('Cannot accept.');$this->execute("UPDATE messenger_calls SET state='active',answer_grant=?,expires_at=?,callee_seen=? WHERE id=?",[$grant,time()+7200,time(),$id]);}
             elseif($kind==='reject'){if(!$callee||$row['state']!=='ringing')throw new WirePermissionException('Cannot reject.');$this->execute("UPDATE messenger_calls SET state='rejected' WHERE id=?",[$id]);}
             elseif(!$caller&&$row['answer_grant']!==$grant)throw new WirePermissionException('Another device owns this call.');

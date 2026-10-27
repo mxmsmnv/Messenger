@@ -61,9 +61,17 @@ $one=$signal($a,$ga,'ice','synthetic-ice','ice_client_000000001');$two=$signal($
 try{$signal($a,$ga,'ice','different','ice_client_000000001');throw new \RuntimeException('Expected retry conflict');}catch(\InvalidArgumentException $e){check(true,'changed retry rejected');}
 $state=$m->experimentalCallRequest($b,$gb,'call-state','GET',[],['id'=>$id,'after'=>0]);check($state['call']['state']==='active'&&count($state['signals'])===3,'participant receives cursor-scoped encrypted signaling');
 check($state['signals'][1]['payload']==='synthetic-private-sdp','authorized recipient decrypts the offer');
-$ice=$m->experimentalCallRequest($a,$ga,'call-ice','GET',[],['id'=>$id]);check($ice['expires_in']>=7495&&$ice['expires_in']<=7500&&$ice['credential']===base64_encode(hash_hmac('sha1',$ice['username'],$m->wire('config')->messengerCalls['turn_secret'],true)),'TURN uses expiring HMAC credentials');
+$ice=$m->experimentalCallRequest($a,$ga,'call-ice','GET',[],['id'=>$id]);check(count($ice['ice_servers'])===2&&$ice['ice_servers'][1]['username']===''&&$ice['expires_in']>=7495&&$ice['expires_in']<=7500&&$ice['credential']===base64_encode(hash_hmac('sha1',$ice['username'],$m->wire('config')->messengerCalls['turn_secret'],true)),'TURN uses expiring HMAC credentials');
 denied(fn()=>$m->experimentalCallRequest($outsider,$gc,'call-ice','GET',[],['id'=>$id]));
+$signal($b,$gb,'restart','','restart_client_00001');
+denied(fn()=>$signal($b,$gd,'restart','','foreign_restart_001'));
+$atA=$m->experimentalCallRequest($a,$ga,'call-state','GET',[],['id'=>$id])['call'];
+$atB=$m->experimentalCallRequest($b,$gb,'call-state','GET',[],['id'=>$id])['call'];
+check($atA['accepted_at']!==null&&$atA['accepted_at']===$atB['accepted_at'],'participants share canonical accepted instant across timezones');
 $signal($a,$ga,'end','','end_client_00000001');
+$atA=$m->experimentalCallRequest($a,$ga,'call-state','GET',[],['id'=>$id])['call'];
+$atB=$m->experimentalCallRequest($b,$gb,'call-state','GET',[],['id'=>$id])['call'];
+check($atA['ended_at']!==null&&$atA['ended_at']===$atB['ended_at'],'participants share canonical end instant');
 denied(fn()=>$signal($b,$gb,'answer','late','late_client_00000001'));
 $call2=$start($a,$ga,'client_call_00000002');$id=$call2['id'];$db->exec('UPDATE messenger_calls SET expires_at=1');
 $expired=$m->experimentalCallRequest($b,$gb,'call-state','GET',[],['id'=>$id]);check($expired['call']['state']==='ended','expired invitations cannot resume');

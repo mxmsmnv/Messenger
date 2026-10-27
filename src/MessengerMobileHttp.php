@@ -38,7 +38,7 @@ CSS;
 			$auth->rateLimit('identity',(string)($_SERVER['REMOTE_ADDR']??'unknown'),30);
 			$auth->rateLimit('identity-site','site',120);
 			$body=$this->body();
-			$allowed=$resource==='token'?['code','code_verifier','redirect_uri']:['refresh_token'];
+			$allowed=$resource==='token'?['code','code_verifier','redirect_uri']:($resource==='refresh'?['refresh_token','recovery_id']:['refresh_token']);
 			if(array_diff(array_keys($body),$allowed))throw new MessengerMobileException('invalid_request','Unexpected fields.');
 			$result=match($resource){'token'=>$auth->exchange($body),'refresh'=>$auth->refresh($body),'revoke'=>$auth->revoke($body)};
 			return $this->json(200,$result);

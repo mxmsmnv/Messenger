@@ -37,12 +37,23 @@ trait MessengerMemberFeatures {
 	}
 	public function memberDirectory(User $actor,string $query='',int $limit=30,bool $contacts=false): array { return $this->directoryMembers($actor,$query,$limit,$contacts?'peers':'directory'); }
 	public function contactBook(User $actor,string $query='',int $limit=30): array { return $this->directoryMembers($actor,$query,$limit,'book'); }
+    /** Discovery visibility is separate from permission to continue an existing chat. */
+    private function directoryRoleVisible(User $member):bool {
+        if($member->isSuperuser())return false;
+        $allowed=$this->directory_visible_roles??[];$hidden=$this->directory_hidden_roles??[];
+        if(!is_array($allowed)||!is_array($hidden))return false;
+        foreach(array_merge($allowed,$hidden) as $id)if(!is_scalar($id)||!preg_match('/^[1-9][0-9]*$/D',(string)$id))return false;
+        foreach($hidden as $id)if($member->hasRole((int)$id))return false;
+        if(!$allowed)return true;
+        foreach($allowed as $id)if($member->hasRole((int)$id))return true;
+        return false;
+    }
 	private function directoryMembers(User $actor,string $query,int $limit,string $mode): array {
 		$this->assertActor($actor);$query=trim($query);if(mb_strlen($query)>120)throw new \InvalidArgumentException('Query is too long.');$limit=max(1,min(30,$limit));
 		if($mode==='book'){$stmt=$this->wire('database')->prepare('SELECT contact_id FROM messenger_contacts WHERE owner_id=? ORDER BY added_at DESC,contact_id LIMIT 100');$stmt->execute([(int)$actor->id]);$candidates=[];foreach($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id)$candidates[]=$this->wire('users')->get((int)$id);}
 		elseif($mode==='peers'){$stmt=$this->wire('database')->prepare('SELECT DISTINCT p.user_id FROM messenger_participants p JOIN messenger_participants own ON own.conversation_id=p.conversation_id AND own.user_id=? WHERE p.user_id<>? ORDER BY p.user_id LIMIT 100');$stmt->execute([(int)$actor->id,(int)$actor->id]);$candidates=[];foreach($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id)$candidates[]=$this->wire('users')->get((int)$id);}
 		else{$selector='id!='.(int)$actor->id.', include=all, sort=name, limit=90';if($query!=='')$selector.=', name*='.$this->wire('sanitizer')->selectorValue($query);$candidates=$this->wire('users')->find($selector);}
-		$result=[];foreach($candidates as $member){if(!$member instanceof User||!$this->canReceive($member)||$this->isBlockedEitherWay((int)$actor->id,(int)$member->id))continue;if($mode!=='directory'&&$query!==''&&mb_stripos((string)$member->name,$query)===false)continue;
+		$result=[];foreach($candidates as $member){if(!$member instanceof User||($mode==='directory'&&!$this->directoryRoleVisible($member))||!$this->canReceive($member)||$this->isBlockedEitherWay((int)$actor->id,(int)$member->id))continue;if($mode!=='directory'&&$query!==''&&mb_stripos((string)$member->name,$query)===false)continue;
 			$result[]=['id'=>(int)$member->id,'name'=>(string)$member->name,'title'=>(string)($member->get('display_name')?:$member->get('title')?:$member->name),'presence'=>$this->memberPresence((int)$member->id),'added_at'=>$this->contactAddedAt((int)$actor->id,(int)$member->id)];if(count($result)>=$limit)break;}
 		return $result;
 	}

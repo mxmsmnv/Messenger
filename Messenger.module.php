@@ -1,6 +1,7 @@
 <?php namespace ProcessWire;
 
 require_once __DIR__ . '/src/MessengerCalls.php';
+require_once __DIR__ . '/src/MessengerCallRelays.php';
 require_once __DIR__ . '/src/MessengerGroups.php';
 require_once __DIR__ . '/src/MessengerGroupLinks.php';
 require_once __DIR__ . '/src/MessengerMentions.php';
@@ -40,12 +41,13 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerSavedMessages;
 	use MessengerBroadcasts;
 	use MessengerCalls;
+	use MessengerCallRelays;
 	use MessengerMessagePush;
 	use MessengerMemberFeatures;
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 170;
+	public const VERSION = 171;
 	private const REACTION_EMOJI=['👍','❤️','😂','😮','😢','🙏'];
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
@@ -70,7 +72,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 170,
+			'version' => 171,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -107,6 +109,8 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 			'from_name' => 'Messenger',
 			'retention_days' => 0,
 			'mobile_enabled' => 0,
+            'directory_visible_roles' => [],
+            'directory_hidden_roles' => [],
 			'mobile_origin' => '',
 			'mobile_redirect_uris' => '',
 			'mobile_login_path' => '',
@@ -124,6 +128,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$this->addHook('/messenger-api/{version}/{resource}/', $this, 'handleRestRequest');
 		$this->addHook('/messenger-mobile/v1/{resource}/', $this, 'handleMobileRequest');
 		$this->addHook('/.well-known/narzan', $this, 'handleMobileDiscovery');
+		$this->addHookBefore('Modules::saveModuleConfigData', $this, 'beforeSaveCallRelays');
 		$this->addHookBefore('Modules::saveModuleConfigData', $this, 'beforeSaveWireWallIntegration');
 		$this->addHookAfter('Modules::saveModuleConfigData', $this, 'afterSaveWireWallIntegration');
 	}
@@ -241,6 +246,13 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$add($mobile, 'InputfieldTextarea', 'mobile_redirect_uris', $this->_('Custom application callback URIs (optional)'), $this->_('Leave empty for the official Narzan app. Advanced: one exact URI per line replaces the built-in callback. No wildcard or HTTP callbacks.'), 100);
 		$add($mobile, 'InputfieldText', 'mobile_login_path', $this->_('Existing website sign-in path'), $this->_('Optional same-origin path. The consuming site owns login and registration.'), 50);
 		$add($mobile, 'InputfieldText', 'mobile_login_return_param', $this->_('Sign-in return parameter'), $this->_('Exact parameter already supported by the site login, for example return. Leave blank when unavailable.'), 50);
+        $roleOptions=[];
+        foreach($this->wire('roles') as $role) { if((string)$role->name!=='guest' && (string)$role->name!=='superuser')$roleOptions[(int)$role->id]=(string)$role->name; }
+        $visibleRoles=$add($mobile, 'InputfieldAsmSelect', 'directory_visible_roles', $this->_('Roles visible in the member directory'), $this->_('Empty preserves all eligible members. Select roles to limit discovery in Narzan and the website directory. This does not grant messaging access or remove existing contacts/conversations. Superusers are never listed.'), 100);
+        $visibleRoles->addOptions($roleOptions);
+        $hiddenRoles=$add($mobile, 'InputfieldAsmSelect', 'directory_hidden_roles', $this->_('Roles hidden from the member directory'), $this->_('Hide management or staff roles. Exclusions win even when a member also has an allowed role. Existing conversation access is unchanged.'), 100);
+        $hiddenRoles->addOptions($roleOptions);
+		$this->callRelayInputfields($mobile);
 		$inputfields->add($mobile);
 
 		$firewall = $fieldset('firewall', $this->_('Firewall integration'), 'shield', $this->_('Let WireWall recognize Messenger’s authenticated public endpoints without weakening unrelated firewall policy.'));
@@ -672,7 +684,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$candidates = $this->wire('users')->find('id!=' . (int)$actor->id . ', name*=' . $value . ', include=all, sort=name, limit=' . ($limit * 3));
 		$result = [];
 		foreach($candidates as $candidate) {
-			if(!$candidate instanceof User || !$this->canReceive($candidate) || $this->isBlockedEitherWay((int)$actor->id, (int)$candidate->id)) continue;
+			if(!$candidate instanceof User || !$this->directoryRoleVisible($candidate) || !$this->canReceive($candidate) || $this->isBlockedEitherWay((int)$actor->id, (int)$candidate->id)) continue;
 			$title = trim((string)($candidate->get('display_name') ?: $candidate->get('title') ?: $candidate->name));
 			$result[] = ['id' => (int)$candidate->id, 'name' => (string)$candidate->name, 'title' => $title];
 			if(count($result) >= $limit) break;
@@ -911,7 +923,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=170) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=171) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 

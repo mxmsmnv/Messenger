@@ -35,6 +35,7 @@ php tests/media-catalog.php
 php tests/activity.php
 php tests/saved-messages.php
 php tests/calls.php
+php tests/call-relays.php
 php tests/account-calls.php
 php tests/call-events.php
 php tests/write-acks.php
@@ -45,9 +46,11 @@ php tests/account-message-push.php
 php tests/message-push-provider.php
 php tests/image-albums.php
 php tests/message-info.php
+php tests/directory-roles.php
 php tests/member-features.php
 php tests/conversation-settings.php
 php tests/mobile-auth.php
+php tests/refresh-recovery.php
 php tests/device-sessions.php
 php tests/web-mobile-transport.php
 python3 tests/http-transport.py

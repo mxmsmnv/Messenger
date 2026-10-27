@@ -2,6 +2,30 @@
 
 All notable changes to Messenger are documented by release date, with versions listed newest first within each day. Git history is preserved.
 
+## 2026-10-27
+
+### [1.7.1] — call reliability candidate, not installed
+
+- Add an administrator-managed pool of up to five coturn REST servers with encrypted
+  secret storage. Empty pool permits direct connections; push readiness remains
+  independent. Legacy private configuration and first-relay response stay supported.
+- Add opt-in crash-resumable refresh receipts with a sealed response, immutable
+  recovery ID, ten-minute expiry and existing reuse/revocation protections.
+- Add authenticated ICE restart signaling, a ninety-second heartbeat grace and
+  shared server timestamps for accepted/ended calls. No web JS/CSS changes.
+- Existing sites require explicit operator creation of the two additive tables;
+  upgrading module metadata alone does not migrate permissions or existing data.
+
+## 2026-10-26
+
+### Unreleased — directory visibility candidate
+
+- Add include/exclude directory role selectors under Narzan mobile access.
+  Exclusions take precedence; superusers are not discoverable. Keep existing
+  contacts and authorized conversations independent from discovery visibility.
+- Server-side enforcement is shared by web/mobile directories; no web assets,
+  database schema or live-site configuration changed.
+
 ## 2026-10-25
 
 ### [1.7.0] — development candidate, not installed
