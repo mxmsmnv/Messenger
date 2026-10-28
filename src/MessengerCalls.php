@@ -107,6 +107,7 @@ trait MessengerCalls {
     /** Bounded CLI worker; provider send is injectable for deterministic delivery tests. */
     public function processExperimentalCallPushes(User $actor,callable $send,int $limit=20):array {
         if(PHP_SAPI!=='cli'||!$this->canAdmin($actor))throw new WirePermissionException('CLI administrator required.');
+        $this->pruneClientDiagnostics();
         if($this->experimentalCallFeedbackReady())$this->execute('DELETE FROM messenger_call_feedback WHERE created_at<?',[time()-2592000]);
         $result=['sent'=>0,'retry'=>0,'discarded'=>0];if(!$this->experimentalCallsReady())return $result;
         $db=$this->wire('database');$this->expireExperimentalCalls();$now=time();$limit=max(1,min(20,$limit));

@@ -729,7 +729,7 @@ The accepted list must exactly acknowledge the batch. Reuse with altered data is
 Chat membership and the call's exact native grant are checked again on every write.
 Encrypted at rest with authenticated event/grant/member context. Maximum5000 new
 events/member/day and100000 total. Seven-day retention is pruned on ingestion,
-private export and the existing message-push worker; keep that worker scheduled.
+private export and the existing message-push or call worker; keep at least one worker scheduled.
 Private `clientDiagnostics($admin,$cursor,100)` additionally requires export rights
 and returns a composite cursor on each row. It never makes a public feed.
 

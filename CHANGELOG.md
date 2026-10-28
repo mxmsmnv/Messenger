@@ -9,6 +9,8 @@ All notable changes to Messenger are documented by release date, with versions l
 - Add explicitly installed, encrypted native diagnostics with strict event/metric
   allowlists, exact grant/context authorization, idempotent receipts, quotas and
   seven-day retention. No message/audio/keyboard data or web asset change.
+- Prune diagnostic retention through existing call workers as well as message
+  workers, including sites without ordinary message push. No new service.
 - Keep 171→172 metadata upgrades free of automatic permissions/schema work.
 - Advertise capability only after operator setup. Private exports require admin
   plus export access. Existing sites are not migrated automatically.

@@ -32,4 +32,5 @@ $db->prepare('UPDATE messenger_mobile_grants SET revoked_at=NULL WHERE id=?')->e
 $db->beginTransaction();$q=$db->prepare('INSERT INTO messenger_client_diagnostics VALUES(?,?,?,?,?)');for($i=1;$i<=5000;$i++)$q->execute([str_pad(dechex($i),32,'0',STR_PAD_LEFT),str_repeat('f',64),(int)$a->id,'synthetic encrypted fixture',time()]);$db->commit();
 try{$send($a,$ga,$body);throw new \RuntimeException('Expected quota');}catch(MessengerMobileException $e){check($e->httpStatus===429,'daily quota enforced');}
 check((int)$db->query('SELECT COUNT(*) FROM messenger_client_diagnostics WHERE user_id>0')->fetchColumn()===5000,'quota rollback preserves count');
+$db->exec('UPDATE messenger_client_diagnostics SET created_at=1 WHERE user_id>0');$m->processExperimentalCallPushes($admin,fn()=>throw new \RuntimeException('No provider should run'));check((int)$db->query('SELECT COUNT(*) FROM messenger_client_diagnostics WHERE user_id>0')->fetchColumn()===0,'existing call worker prunes diagnostics with message push and calls disabled');
 echo ($GLOBALS['checks']??0)." client diagnostics checks passed\n";
