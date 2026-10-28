@@ -68,6 +68,7 @@ trait MessengerMessagePush {
     /** Metadata-only alerts: message bodies and sender names never go to APNs/FCM. */
     public function processMessagePushes(User $actor,callable $send,int $limit=20):array {
         if(!$this->canAdmin($actor))throw new WirePermissionException('Worker administrator required.');
+        $this->pruneClientDiagnostics();
         $result=['sent'=>0,'retry'=>0,'discarded'=>0];if(!$this->messagePushSchemaReady())return $result;
         $db=$this->wire('database');$now=time();$limit=max(1,min(20,$limit));
         $this->execute('DELETE FROM messenger_message_pushes WHERE created_at<?',[$now-604800]);

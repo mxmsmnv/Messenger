@@ -1,0 +1,11 @@
+<?php declare(strict_types=1);namespace ProcessWire;
+require __DIR__.'/forwarding-integration.php';$inherited=$GLOBALS['checks'];
+$m->installClientDiagnostics($operator);$m->installClientDiagnostics($operator);
+$grant=bin2hex(random_bytes(16));$db->prepare('INSERT INTO messenger_mobile_grants(id,user_id,device_name,created_at,revoked_at) VALUES(?,?,?,?,NULL)')->execute([$grant,(int)$a->id,'Synthetic diagnostics',time()]);
+$id=bin2hex(random_bytes(16));$body=['version'=>1,'platform'=>'ios','enabled'=>true,'events'=>[['id'=>$id,'name'=>'chat_open','time_ms'=>time()*1000,'chat_id'=>(int)$source]]];
+$send=fn()=>$as($a,fn()=>$m->receiveClientDiagnostics($a,$grant,'POST',$body));
+check($send()['accepted']===[$id],'actual MySQL event accepted');check($send()['accepted']===[$id],'actual MySQL retry deduplicated');
+$raw=$db->query('SELECT payload FROM messenger_client_diagnostics WHERE user_id>0 LIMIT 1')->fetchColumn();check(str_starts_with($raw,'menc:v1:')&&!str_contains($raw,'chat_open'),'actual MySQL metadata encryption');
+$rows=$m->clientDiagnostics($operator);check(count($rows)===1&&$rows[0]['data']['event']['chat_id']===(int)$source,'actual authorized metadata export');check($m->clientDiagnostics($operator,$rows[0]['cursor'])===[],'actual composite cursor');
+$db->prepare('UPDATE messenger_client_diagnostics SET created_at=? WHERE user_id>0')->execute([time()-604801]);$m->pruneClientDiagnostics();check($m->clientDiagnostics($operator)===[],'actual retention pruning');check(!$db->inTransaction(),'no leaked transaction');
+echo json_encode(['diagnostic_checks'=>$GLOBALS['checks']-$inherited,'database'=>'isolated MySQL clone','live_site_modified'=>false]).PHP_EOL;

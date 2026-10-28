@@ -232,3 +232,9 @@ An opt-in relay pool, direct/STUN support, refresh recovery and ICE-restart sign
 are prepared as a local candidate. Existing installations require the explicit
 operator setup in [Call reliability](docs/CALL_RELIABILITY.md); metadata upgrade alone
 does not alter schema or activate providers. Browser assets remain unchanged.
+
+### Client diagnostics — 1.7.2 candidate
+Native metadata diagnostics require an explicit `installClientDiagnostics($admin)`
+installation. See API.md for privacy, quotas, encryption, private export and retention.
+No web assets or messaging tables are replaced by this feature. Not installed on
+consuming sites automatically.

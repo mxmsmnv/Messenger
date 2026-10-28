@@ -1,6 +1,6 @@
 # Messenger public API
 
-This document describes Messenger 1.7.1 (ProcessWire module version `171`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
+This document describes Messenger 1.7.2 (ProcessWire module version `172`). Confirm the installed version and live site configuration before using it; documentation is not evidence that the module is installed or enabled.
 
 ## Loading the module
 
@@ -710,3 +710,30 @@ Message `event` is actor-specific structured state; `group_events` and separate
 `group_event_reminders` capabilities gate controls. Response versions, current
 membership/visibility and per-member consent are mandatory. No automatic schema,
 worker/provider installation, browser-push registration or public attendee list.
+
+
+## Native client diagnostics (1.7.2 candidate)
+
+Separate explicit operator installation: `installClientDiagnostics($admin)`. Discovery
+advertises `client_diagnostics` and call-config reports `diagnostics_enabled` only
+after that schema exists. Installation is never triggered by native requests or upgrades.
+
+`POST client-diagnostics/` requires a current native Bearer grant and body
+`{version:1, platform:"ios"|"android"|"other", enabled:true, events:[...]}`.
+At most50 events/64KiB. Each event has immutable32hex `id`, enumerated `name`,
+`time_ms` (last24h, up to5min clock tolerance), optional enumerated `screen`,
+positive `chat_id`, UUID `call_id`, and up to8 whitelisted numeric `values`.
+Unknown keys/text metrics are rejected. No message, audio, keyboard, coordinates,
+URL, IP, device identifier or native exception payload is accepted.
+The accepted list must exactly acknowledge the batch. Reuse with altered data is409.
+Chat membership and the call's exact native grant are checked again on every write.
+Encrypted at rest with authenticated event/grant/member context. Maximum5000 new
+events/member/day and100000 total. Seven-day retention is pruned on ingestion,
+private export and the existing message-push worker; keep that worker scheduled.
+Private `clientDiagnostics($admin,$cursor,100)` additionally requires export rights
+and returns a composite cursor on each row. It never makes a public feed.
+
+Default-on client collection is separately explained and switchable. Opt-out clears
+unsent local data and cancels upload; already accepted packets expire on the server.
+The existing optional30-day call-rating survey retains its separate explicit consent.
+Do not deploy this candidate without a consuming-site backup and operator approval.

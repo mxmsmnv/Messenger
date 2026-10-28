@@ -2,6 +2,17 @@
 
 All notable changes to Messenger are documented by release date, with versions listed newest first within each day. Git history is preserved.
 
+## 2026-10-28
+
+### [1.7.2] — bounded client diagnostics
+
+- Add explicitly installed, encrypted native diagnostics with strict event/metric
+  allowlists, exact grant/context authorization, idempotent receipts, quotas and
+  seven-day retention. No message/audio/keyboard data or web asset change.
+- Keep 171→172 metadata upgrades free of automatic permissions/schema work.
+- Advertise capability only after operator setup. Private exports require admin
+  plus export access. Existing sites are not migrated automatically.
+
 ## 2026-10-27
 
 ### [1.7.1] — call reliability candidate, not installed

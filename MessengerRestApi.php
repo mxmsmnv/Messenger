@@ -46,6 +46,11 @@ final class MessengerRestApi extends Wire {
                 if(!is_string($id)||!preg_match('/^[a-f0-9]{32}$/D',$id))throw new \InvalidArgumentException('A connection ID is required.');
                 $auth->revokeDevice($actor,$id);return $this->response(200,['revoked'=>true,'current_revoked'=>hash_equals($grant,$id)]);
             }
+            if($resource==='client-diagnostics'){
+                if(!$native)throw new WirePermissionException('Native connection required.');
+                $this->allow($method,['POST']);
+                return $this->response(200,$this->messenger->receiveClientDiagnostics($actor,$auth->authenticatedGrant($authorization),$method,$body));
+            }
             if($resource==='message-push-device') {
                 if(!$native)throw new WirePermissionException('Native connection required.');
                 return $this->response(200,$this->messenger->messagePushDevice($actor,$auth->authenticatedGrant($authorization),$method,$body));
@@ -332,7 +337,7 @@ final class MessengerRestApi extends Wire {
     }
 
 	private function jsonBody(string $resource = ''): array {
-		$maximum=$resource==='send-attachment'?12*1024*1024:($resource==='group-avatar'?1024*1024:self::MAX_BODY_BYTES);
+		$maximum=$resource==='client-diagnostics'?65536:($resource==='send-attachment'?12*1024*1024:($resource==='group-avatar'?1024*1024:self::MAX_BODY_BYTES));
 		$type=strtolower(trim(explode(';',(string)($_SERVER['CONTENT_TYPE']??''))[0]));if($type!=='application/json')throw new \InvalidArgumentException('Content-Type application/json is required.');
 		$length=(int)($_SERVER['CONTENT_LENGTH']??0);if($length>$maximum)throw new \InvalidArgumentException('Request is too large.');
 		$raw=file_get_contents('php://input',false,null,0,$maximum+1);if(!is_string($raw)||strlen($raw)>$maximum)throw new \InvalidArgumentException('Request is too large.');

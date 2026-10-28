@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/src/MessengerCalls.php';
 require_once __DIR__ . '/src/MessengerCallRelays.php';
+require_once __DIR__ . '/src/MessengerClientDiagnostics.php';
 require_once __DIR__ . '/src/MessengerGroups.php';
 require_once __DIR__ . '/src/MessengerGroupLinks.php';
 require_once __DIR__ . '/src/MessengerMentions.php';
@@ -42,12 +43,13 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	use MessengerBroadcasts;
 	use MessengerCalls;
 	use MessengerCallRelays;
+	use MessengerClientDiagnostics;
 	use MessengerMessagePush;
 	use MessengerMemberFeatures;
 	use MessengerConversationSettings;
 	use MessengerWireWallIntegration;
 
-	public const VERSION = 171;
+	public const VERSION = 172;
 	private const REACTION_EMOJI=['👍','❤️','😂','😮','😢','🙏'];
 	public const REST_API_VERSION = 'v1';
 	private const ENCRYPTION_PREFIX = 'menc:v1:';
@@ -72,7 +74,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo(): array {
 		return [
 			'title' => 'Messenger',
-			'version' => 171,
+			'version' => 172,
 			'summary' => 'Private member messaging, message requests, blocking, reporting and moderation.',
 			'author' => 'Maxim Semenov',
 			'license' => 'MIT',
@@ -923,7 +925,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public function install(): void { $this->encryptionKey(); $this->installPermissions(); $this->installTables(); MessengerMobileAuth::install($this->wire('database')); }
 	public function upgrade($fromVersion, $toVersion): void {
 		// These exact additive patches never rerun schema, permissions, keys or migrations.
-		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=171) return;
+		if((int)$fromVersion>=143 && (int)$fromVersion<(int)$toVersion && (int)$toVersion<=172) return;
 		$this->installPermissions(); $this->installTables(); $this->ensureRequestHashColumn(); MessengerMobileAuth::install($this->wire('database')); if((int)$fromVersion<7&&(int)$toVersion>=7)$this->migrateEncryptionAtRest(); }
 	public function uninstall(): void { $this->removeWireWallIntegrationOnUninstall(); $this->message($this->_('Messenger data and permissions were retained.')); }
 

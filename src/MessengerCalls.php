@@ -179,7 +179,7 @@ trait MessengerCalls {
         $this->assertActor($actor);
         if($resource==='call-config') {
             if($method!=='GET')throw new \InvalidArgumentException('GET required.');
-            return ['enabled'=>$this->experimentalCallsReady(),'feedback_enabled'=>$this->experimentalCallFeedbackReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45,'account_binding_supported'=>$this->accountCallsReady(),'ice_restart_supported'=>true,'direct_connections'=>true,'relay_count'=>count($this->configuredCallRelays())];
+            return ['enabled'=>$this->experimentalCallsReady(),'feedback_enabled'=>$this->experimentalCallFeedbackReady(),'diagnostics_enabled'=>$this->clientDiagnosticsReady(),'experimental'=>true,'incoming_requires_push'=>true,'max_ring_seconds'=>45,'account_binding_supported'=>$this->accountCallsReady(),'ice_restart_supported'=>true,'direct_connections'=>true,'relay_count'=>count($this->configuredCallRelays())];
         }
         if(!preg_match('/^[a-f0-9]{32}$/D',$grant))throw new WirePermissionException('Native connection required.');
         $db=$this->wire('database');
