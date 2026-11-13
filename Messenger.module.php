@@ -89,6 +89,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	public static function getDefaultConfig(): array {
 		return [
 			'public_path' => '/messages/',
+			'workspace_members_only' => 0,
 			'frontend_framework' => 'designsystemet',
 			'frontend_custom_map' => '',
 			'first_contact_mode' => 'requests',
@@ -127,6 +128,9 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	}
 
 	public function init(): void {
+        if ($this->workspaceMembersOnly()) {
+            $this->addHookAfter('Workspace::getAppDefinitions', $this, 'registerWorkspaceMessages');
+        }
 		$this->addHook('/messenger-api/{version}/{resource}/', $this, 'handleRestRequest');
 		$this->addHook('/messenger-mobile/v1/{resource}/', $this, 'handleMobileRequest');
 		$this->addHook('/.well-known/narzan', $this, 'handleMobileDiscovery');
@@ -181,6 +185,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		$framework->addOptions($this->frontendFrameworks());
 		$customMap = $add($experience, 'InputfieldTextarea', 'frontend_custom_map', $this->_('Custom framework adapter (JSON)'), $this->_('Optional role-to-attributes map. It can define a custom framework or override individual roles in a built-in adapter.'), 100, ['rows' => 7, 'collapsed' => Inputfield::collapsedBlank]);
 		$customMap->notes = '{"input":{"class":"my-input"},"button_primary":{"class":"my-button","data-variant":"primary"},"badge":{"class":"my-badge"}}';
+        $add($experience, 'InputfieldCheckbox', 'workspace_members_only', $this->_('Workspace members only'), $this->_('Limit messaging to Workspace members and register the Messages application when ProcessMessengerWorkspace is installed.'), 100);
 		$contactMode = $add($experience, 'InputfieldSelect', 'first_contact_mode', $this->_('First contact policy'), $this->_('Message Requests protects members from unsolicited conversations. A site may override this through Messenger::messagingDecision.'), 50);
 		$add($experience, 'InputfieldCheckbox', 'groups_enabled', $this->_('Enable group conversations'), $this->_('Requires the explicit installGroups migration. Invitations require acceptance; new members cannot read earlier history.'), 100);
 		$add($experience, 'InputfieldCheckbox', 'message_tools_enabled', $this->_('Enable message tools'), $this->_('Requires the explicit installMessageTools migration. Forwarded attachments become independently authorized copies; reactions remain participant-scoped.'), 100);
@@ -375,13 +380,37 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 		return $out;
 	}
 
+    public function workspaceMembersOnly(): bool {
+        return (bool) $this->workspace_members_only;
+    }
+
+    private function isWorkspaceMessengerMember(User $user): bool {
+        return !$this->workspaceMembersOnly() || (!$user->isUnpublished() && !$user->isTrash()
+            && !$user->isLocked() && ($user->isSuperuser() || $user->hasPermission('workspace-use')));
+    }
+
+    public function registerWorkspaceMessages(HookEvent $event): void {
+        $apps = $event->return;
+        $apps[] = [
+            'id' => 'messenger-workspace',
+            'title' => 'Messages',
+            'description' => 'Private conversations with your team.',
+            'process' => 'ProcessMessengerWorkspace',
+            'module' => 'Messenger',
+            'icon' => 'comments',
+            'color' => '#2563eb',
+            'allowedSections' => [],
+        ];
+        $event->return = $apps;
+    }
+
 	public function canUse(?User $user = null): bool {
 		$user = $user ?: $this->wire('user');
-		return $user instanceof User && $user->id > 0 && $user->isLoggedin() && !$this->restriction($user)['active'];
+		return $user instanceof User && $user->id > 0 && $user->isLoggedin() && $this->isWorkspaceMessengerMember($user) && !$this->restriction($user)['active'];
 	}
 
 	public function canReceive(?User $user = null): bool {
-		return $user instanceof User && $user->id > 0 && !$user->isGuest() && !$this->restriction($user)['active'];
+		return $user instanceof User && $user->id > 0 && !$user->isGuest() && $this->isWorkspaceMessengerMember($user) && !$this->restriction($user)['active'];
 	}
 
 	public function canModerate(?User $user = null): bool {
@@ -848,7 +877,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
 	}
 
 	public function renderApp(User $actor, array $options = []): string {
-		if(!$actor->id || !$actor->isLoggedin()) throw new WirePermissionException('Messenger access denied.');
+		if(!$actor->id || !$actor->isLoggedin() || !$this->isWorkspaceMessengerMember($actor)) throw new WirePermissionException('Messenger access denied.');
 		$config = $this->wire('config');
 		$config->styles->add($config->urls->Messenger . 'assets/messenger.css?v=' . self::VERSION);
 		$title = $this->wire('sanitizer')->entities((string)($options['title'] ?? $this->_('Messages')));
