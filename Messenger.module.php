@@ -902,7 +902,7 @@ class Messenger extends WireData implements Module, ConfigurableModule {
         $config->scripts->add($config->urls->Messenger . 'assets/messenger-mentions.js?v=' . self::VERSION);
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger-tools.js?v=' . self::VERSION);
 		$config->scripts->add($config->urls->Messenger . 'assets/messenger-activity.js?v=' . self::VERSION);
-		$config->scripts->add($config->urls->Messenger . 'assets/messenger.js?v=' . self::VERSION);
+		$config->scripts->add($config->urls->Messenger . 'assets/messenger.js?v=' . self::VERSION . '-' . filemtime(__DIR__ . '/assets/messenger.js'));
 		$endpoint = (string)($options['api'] ?? '/messenger-api/' . self::REST_API_VERSION . '/');
 		return '<section' . $this->frontendAttributes('app', [
 			'class' => 'MessengerApp', 'data-messenger-app' => '', 'data-api' => $endpoint,
